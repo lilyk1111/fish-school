@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Loop Logic</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.1/lib/p5.min.js"></script>
+<style>
+  html,body{margin:0;height:100%;background:#05070f;overflow:hidden;font-family:system-ui,-apple-system,Helvetica,sans-serif;color:#eef2ff}
+  canvas{display:block}
+  #panel{position:fixed;left:16px;bottom:16px;width:250px;background:rgba(10,14,30,.8);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:12px 14px;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+  #panel .head{display:flex;justify-content:space-between;align-items:center}
+  #panel .head strong{letter-spacing:.12em;font-size:12px}
+  #panel.min #body{display:none}
+  #panel label{display:flex;justify-content:space-between;margin-top:10px;margin-bottom:2px;color:#c9d2f2}
+  #panel label span{color:#fff;font-variant-numeric:tabular-nums}
+  #panel input[type=range]{width:100%;accent-color:#ff5d8f}
+  #panel select{width:100%;padding:5px;border-radius:7px;border:1px solid rgba(255,255,255,.2);background:#141a33;color:#fff;font:inherit}
+  .hint{margin:10px 0 0;color:#9aa6cf;font-size:12px}
+  details{margin-top:8px;color:#c9d2f2;font-size:12px;line-height:1.45}
+  summary{cursor:pointer;color:#fff}
+  .btns{display:flex;gap:8px;margin-top:12px}
+  button{font:inherit;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#1d2547;color:#fff;padding:7px 10px;cursor:pointer}
+  button:hover{background:#28325e}
+  button:disabled{opacity:.6;cursor:wait}
+  #rec{background:#ff5d8f;border-color:#ff5d8f;flex:1}
+  #toggle{padding:2px 9px}
+</style>
+</head>
+<body>
+<div id="panel">
+  <div class="head"><strong>LOOP LOGIC</strong><button id="toggle" title="Hide controls">–</button></div>
+  <div id="body">
+    <label>Launch speed <span id="vLaunch">90 km/h</span></label>
+    <input id="launch" type="range" min="20" max="160" value="90">
+    <label>Loops &amp; rolls <span id="vLoops">4</span></label>
+    <input id="loops" type="range" min="0" max="12" value="4">
+    <label>Inversion style</label>
+    <select id="style">
+      <option value="mixed">Mixed (loops, corkscrews, double loops)</option>
+      <option value="loop">Loops only</option>
+      <option value="cork">Corkscrews only</option>
+      <option value="double">Double loops only</option>
+    </select>
+    <label>Hill height <span id="vHills">50%</span></label>
+    <input id="hills" type="range" min="0" max="100" value="50">
+    <label>Location</label>
+    <select id="scene">
+      <option value="night">City at night</option>
+      <option value="sunset">Mountain sunset</option>
+      <option value="beach">Beach boardwalk</option>
+    </select>
+    <p class="hint">Drag any loop to move it along the track.</p>
+    <details>
+      <summary>The rules</summary>
+      1. Gravity pulls the train along whatever slope is under it.<br>
+      2. Friction and air slowly steal speed.<br>
+      3. The station boosts the train to your launch speed.<br>
+      Nothing else is scripted: clearing loops, rolling back and getting stranded all emerge from those three rules.
+    </details>
+    <div class="btns"><button id="restart">Restart</button><button id="rec">● Record 10s GIF</button></div>
+  </div>
+</div>
+
+<script>
+// ---------- state ----------
+const P = { launch: 90, loops: 4, hills: 0.5, scene: 'night', style: 'mixed' };
+let W, H, ppm, GRAV, groundY, trackY, R, D, stationEnd, minSep, carW, GAP;
+let loopXs = [];             // loop centres as fractions of width
+let pts = [], L = 1;         // track polyline with arc length
+let bgLayer, trackLayer;
+let s = 0, v = 0, lastA = 0; // front-car arc position (px) and speed (px/s)
+let trail = [];
+let laps = 0, reversals = 0, lastDir = 0;
+let status = '', statusT = 0, strandT = null;
+let gSmooth = 1;
+let invCount = 0, wasInv = false;
+let dragging = -1, hoverLoop = -1;
+let recording = false, baseDensity = 1;
+let FIXDT = 1 / 60;
+const SUB = 10;
+
+const SCENES = {
+  night:  { sky:['#060a1c','#1d2a5c'], far:'#141c40', near:'#0a1029', ground:'#05070f',
+            rail:'#9fd3ff', railDark:'#1b2552', support:'rgba(160,190,255,0.22)',
+            car:['#ff5d8f','#ffd166','#4cc9f0'], rider:'#ffe0c2', hud:'#e8eeff', trail:['#4cc9f0','#ff5d8f'] },
+  sunset: { sky:['#2b1055','#ff8a5c'], far:'#7a3466', near:'#41183f', ground:'#22102a',
+            rail:'#fff1d6', railDark:'#5a2140', support:'rgba(255,220,200,0.25)',
+            car:['#2ec4b6','#ffbf69','#ff6b6b'], rider:'#ffe0c2', hud:'#fff5eb', trail:['#ffd166','#ff3c7d'] },
+  beach:  { sky:['#4fc0ef','#e3f7ff'], far:'#2bb3d9', near:'#127aa6', ground:'#f0d39a',
+            rail:'#d7263d', railDark:'#6d0f1f', support:'rgba(90,60,30,0.35)',
+            car:['#0353a4','#f4a259','#2a9d8f'], rider:'#ffe0c2', hud:'#08304a', trail:['#ffffff','#ff2e63'] }
+};
+const SC = () => SCENES[P.scene];
+const kmh = px => px / ppm * 3.6;
+const $ = id => document.getElementById(id);
+
+// ---------- setup ----------
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  baseDensity = Math.min(2, displayDensity());
+  pixelDensity(baseDensity);
+  frameRate(60);
+  textFont('system-ui, -apple-system, Helvetica, sans-serif');
+  layout();
+  setLoopCount(P.loops);
+  rebuild(false);
+  buildBg();
+  resetTrain();
+  bindUI();
+}
+
+function layout() {
+  W = width; H = height;
+  ppm = H / 40;                 // the screen is ~40 m tall
+  GRAV = 9.81 * ppm;
+  groundY = H * 0.88;
+  trackY = H * 0.72;
+  stationEnd = Math.max(W * 0.15, 110);
+  // shrink the elements so the chosen number of them fits on screen
+  const fitR = (W - stationEnd - W * 0.04) / (Math.max(1, P.loops) * 3.7 + 1);
+  R = Math.max(14, Math.min(H * 0.13, W * 0.08, fitR));
+  D = 1.2 * R;
+  minSep = 3.6 * R;
+  carW = Math.max(14, Math.min(R * 0.36, H * 0.045));
+  GAP = carW * 1.15;
+}
+
+const TYPES = { mixed: ['loop', 'cork', 'loop', 'double'], loop: ['loop'], cork: ['cork'], double: ['double'] };
+function typeFor(i) { const t = TYPES[P.style]; return t[i % t.length]; }
+function footprint(type) { return type === 'double' ? 2 * D : type === 'cork' ? 2.4 * R : D; }
+
+function loopRange() { return [stationEnd + 2 * R, W - 2.2 * R]; }
+function maxLoops() { const [a, b] = loopRange(); return Math.max(0, Math.floor((b - a) / minSep)); }
+
+function setLoopCount(n) {
+  const m = maxLoops();
+  const clamped = n > m;
+  n = Math.min(n, m);
+  P.loops = n;
+  const [a, b] = loopRange();
+  loopXs = [];
+  for (let i = 0; i < n; i++) loopXs.push((a + (i + 0.5) * (b - a) / n) / W);
+  if ($('loops')) {
+    $('loops').value = n;
+    $('vLoops').textContent = clamped ? n + ' (max for this screen)' : n;
+  }
+}
+
+// ---------- track ----------
+function buildTrack() {
+  pts = [];
+  const add = (x, y, kind, roll = 0) => pts.push({ x, y, kind, roll });
+  const step = 3;
+  for (let x = 0; x < stationEnd; x += step) add(x, trackY, 'station');
+  let cursor = stationEnd;
+  const hill = (a, b) => {
+    const w = b - a; if (w <= 0) return;
+    const h = P.hills * Math.min(H * 0.32, w * 0.45);
+    for (let x = a; x < b; x += step) {
+      const u = (x - a) / w;
+      add(x, trackY - h * Math.sin(Math.PI * u) ** 2, 'hill');
+    }
+  };
+  const addLoop = x0 => {
+    const N = 240;
+    for (let i = 0; i < N; i++) {
+      const t = i / N;
+      add(x0 + D * t + R * Math.sin(2 * Math.PI * t), trackY - R * (1 - Math.cos(2 * Math.PI * t)), 'loop');
+    }
+  };
+  const addCork = x0 => {
+    // a corkscrew seen from the side: the track barely rises while the train rolls a full 360°
+    const N = 200, len = 2.4 * R;
+    for (let i = 0; i < N; i++) {
+      const t = i / N;
+      add(x0 + len * t, trackY - 0.45 * R * (1 - Math.cos(2 * Math.PI * t)), 'cork', 2 * Math.PI * t);
+    }
+  };
+  loopXs.map((f, i) => ({ cx: f * W, type: typeFor(i) }))
+    .sort((a, b) => a.cx - b.cx)
+    .forEach(({ cx, type }) => {
+      const fw = footprint(type), x0 = cx - fw / 2;
+      hill(cursor, x0);
+      if (type === 'loop') addLoop(x0);
+      else if (type === 'double') { addLoop(x0); addLoop(x0 + D); }
+      else addCork(x0);
+      cursor = x0 + fw;
+    });
+  hill(cursor, W);
+  add(W, trackY, 'hill');
+
+  pts[0].s = 0;
+  for (let i = 1; i < pts.length; i++) pts[i].s = pts[i - 1].s + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  L = pts[pts.length - 1].s;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+    pts[i].tx = dx / len; pts[i].ty = dy / len;
+    pts[i].nx = -pts[i].ty; pts[i].ny = pts[i].tx;
+  }
+}
+
+function look(q) {
+  q = ((q % L) + L) % L;
+  let lo = 0, hi = pts.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (pts[m].s <= q) lo = m; else hi = m; }
+  const a = pts[lo], b = pts[hi];
+  const u = (q - a.s) / ((b.s - a.s) || 1);
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+  return { x: a.x + dx * u, y: a.y + dy * u, tx: dx / len, ty: dy / len, kind: a.kind, roll: a.roll + (b.roll - a.roll) * u };
+}
+
+function rebuild(keep = true) {
+  const f = keep && L > 0 ? s / L : 0;
+  buildTrack();
+  buildTrackLayer();
+  if (keep) s = f * L;
+  trail = [];
+}
+
+function buildTrackLayer() {
+  const sc = SC();
+  trackLayer = createGraphics(W, H);
+  const g = trackLayer;
+  g.clear();
+  // supports
+  g.stroke(sc.support); g.strokeWeight(2);
+  for (let i = 0; i < pts.length; i += 10) {
+    const p = pts[i];
+    if (p.kind === 'loop') continue;
+    g.line(p.x, p.y + 4, p.x, groundY);
+  }
+  // loop towers
+  loopXs.forEach((f, i) => {
+    if (typeFor(i) === 'cork') return;
+    const cx = f * W;
+    g.strokeWeight(4); g.line(cx, trackY - R * 0.2, cx, groundY);
+  });
+  // rails (they pinch together where a corkscrew twists side-on)
+  const path = off => { g.beginShape(); for (const p of pts) { const c = Math.cos(p.roll) * off; g.vertex(p.x + p.nx * c, p.y + p.ny * c); } g.endShape(); };
+  g.noFill();
+  g.stroke(sc.railDark); g.strokeWeight(9); path(0);
+  g.stroke(sc.rail); g.strokeWeight(2); path(3.4); path(-3.4);
+  g.strokeWeight(1.2);
+  for (let i = 0; i < pts.length; i += 4) {
+    const p = pts[i], c = Math.cos(p.roll) * 3.4;
+    g.line(p.x + p.nx * c, p.y + p.ny * c, p.x - p.nx * c, p.y - p.ny * c);
+  }
+  // corkscrew helix spine so the twist reads clearly
+  g.stroke(sc.rail); g.strokeWeight(1.5); g.noFill();
+  let open = false;
+  for (const p of pts) {
+    if (p.kind === 'cork') {
+      if (!open) { g.beginShape(); open = true; }
+      const c = Math.sin(p.roll) * R * 0.3;
+      g.vertex(p.x + p.nx * c, p.y + p.ny * c);
+    } else if (open) { g.endShape(); open = false; }
+  }
+  if (open) g.endShape();
+  // station
+  g.noStroke(); g.fill(sc.railDark);
+  g.rect(0, trackY + 7, stationEnd, 9, 0, 3, 3, 0);
+  g.fill(sc.rail); g.textSize(10); g.textStyle(BOLD); g.textAlign(LEFT, TOP);
+  g.text('STATION', 8, trackY + 20);
+}
+
+// ---------- scenery ----------
+function buildBg() {
+  const sc = SC();
+  bgLayer = createGraphics(W, H);
+  const g = bgLayer;
+  randomSeed(3); noiseSeed(5);
+  const top = color(sc.sky[0]), bot = color(sc.sky[1]);
+  for (let y = 0; y < groundY; y++) { g.stroke(lerpColor(top, bot, y / groundY)); g.line(0, y, W, y); }
+  g.noStroke();
+
+  if (P.scene === 'night') {
+    for (let i = 0; i < W * H / 3500; i++) { g.fill(255, random(70, 220)); g.circle(random(W), random(groundY * 0.65), random(0.8, 2.2)); }
+    g.fill(235, 238, 255); g.circle(W * 0.84, H * 0.15, H * 0.08);
+    g.fill(sc.sky[0]); g.circle(W * 0.84 + H * 0.022, H * 0.14, H * 0.07);
+    skyline(g, sc.far, H * 0.16, H * 0.42, false);
+    skyline(g, sc.near, H * 0.06, H * 0.26, true);
+  } else if (P.scene === 'sunset') {
+    for (let r = H * 0.3; r > 0; r -= 4) { g.fill(255, 200, 120, 6); g.circle(W * 0.68, groundY - H * 0.2, r * 2); }
+    g.fill('#ffd27a'); g.circle(W * 0.68, groundY - H * 0.2, H * 0.14);
+    mountains(g, sc.far, groundY - H * 0.28, 0.003, H * 0.32, 0);
+    mountains(g, sc.near, groundY - H * 0.12, 0.006, H * 0.22, 100);
+  } else {
+    g.fill(255, 250, 220); g.circle(W * 0.8, H * 0.14, H * 0.1);
+    g.fill(255, 250, 220, 50); g.circle(W * 0.8, H * 0.14, H * 0.16);
+    const seaTop = H * 0.56;
+    const s1 = color(sc.far), s2 = color(sc.near);
+    for (let y = seaTop; y < groundY; y++) { g.stroke(lerpColor(s1, s2, (y - seaTop) / (groundY - seaTop))); g.line(0, y, W, y); }
+    g.stroke(255, 255, 255, 90); g.strokeWeight(1.5);
+    for (let i = 0; i < W / 18; i++) { const x = random(W), y = random(seaTop + 6, groundY - 4); g.line(x, y, x + random(10, 30), y); }
+    g.noStroke();
+  }
+  g.fill(sc.ground); g.rect(0, groundY, W, H - groundY);
+}
+
+function skyline(g, col, minH, maxH, windows) {
+  let x = 0;
+  while (x < W) {
+    const w = random(28, 80) * Math.max(0.6, H / 800), h = random(minH, maxH);
+    g.fill(col); g.rect(x, groundY - h, w + 1, h);
+    if (windows) {
+      g.fill(255, 214, 120, 150);
+      for (let wy = groundY - h + 8; wy < groundY - 8; wy += 10)
+        for (let wx = x + 5; wx < x + w - 6; wx += 9) if (random() < 0.28) g.rect(wx, wy, 3, 4);
+    }
+    x += w;
+  }
+}
+
+function mountains(g, col, baseY, freq, amp, off) {
+  g.fill(col); g.beginShape(); g.vertex(0, groundY);
+  for (let x = 0; x <= W + 8; x += 8) g.vertex(x, baseY - noise(x * freq * (800 / H) + off) * amp);
+  g.vertex(W, groundY); g.endShape(CLOSE);
+}
+
+// ---------- physics: the three rules ----------
+function resetTrain() {
+  s = 2 * GAP + carW; v = 0; laps = 0; reversals = 0; lastDir = 0; strandT = null; trail = [];
+  invCount = 0; wasInv = false;
+  setStatus('Launch!', 1.2);
+}
+
+function physics() {
+  const dt = FIXDT / SUB;
+  const tgt = P.launch / 3.6 * ppm;
+  for (let k = 0; k < SUB; k++) {
+    const c0 = look(s), c1 = look(s - GAP), c2 = look(s - 2 * GAP);
+    const inStation = c1.kind === 'station';
+    let a;
+    if (inStation) {
+      // Rule 3: the station pushes the train toward the launch speed
+      a = (tgt - v) * 9;
+    } else {
+      // Rule 1: gravity along the slope (averaged over the whole train)
+      a = GRAV * (c0.ty + c1.ty + c2.ty) / 3;
+      // Rule 2: rolling friction + air drag
+      if (Math.abs(v) > 0.01 * ppm) a -= Math.sign(v) * 0.012 * GRAV;
+      a -= 0.0008 / ppm * v * Math.abs(v);
+    }
+    v += a * dt;
+    lastA = a;
+    const ps = s;
+    s = ((s + v * dt) % L + L) % L;
+    if (v > 0 && ps > L * 0.8 && s < L * 0.2) { laps++; reversals = 0; }
+
+    const dir = Math.sign(v);
+    if (dir !== 0) {
+      if (lastDir > 0 && dir < 0 && !inStation) onRollback(c1.kind);
+      lastDir = dir;
+    }
+    if (inStation) reversals = 0;
+  }
+}
+
+function onRollback(kind) {
+  reversals++;
+  if (reversals >= 3 && strandT === null) {
+    setStatus('Valleyed! The train is stranded.', 2.6);
+    strandT = 2.4;
+  } else if (strandT === null) {
+    setStatus(kind === 'loop' ? 'Too slow for the loop! Rolling back…' : kind === 'cork' ? 'Stalled in the corkscrew! Rolling back…' : "Couldn't crest the hill! Rolling back…", 2);
+  }
+}
+
+function setStatus(msg, t) { status = msg; statusT = t; }
+
+// ---------- drawing ----------
+function draw() {
+  physics();
+  image(bgLayer, 0, 0, W, H);
+  image(trackLayer, 0, 0, W, H);
+
+  const front = look(s);
+  // count inversions: the moment the front car's "up" points at the ground
+  const upness = front.tx * Math.cos(front.roll);
+  if (!wasInv && upness < -0.3) { wasInv = true; invCount++; }
+  else if (wasInv && upness > 0.3) wasInv = false;
+  const last = trail[trail.length - 1];
+  trail.push({ x: front.x, y: front.y, v: Math.abs(v), brk: !last || Math.hypot(front.x - last.x, front.y - last.y) > 60 });
+  if (trail.length > 90) trail.shift();
+
+  drawTrail();
+  drawTrain();
+  if (!recording) drawHandles();
+  drawHUD();
+
+  statusT -= FIXDT;
+  if (strandT !== null) {
+    strandT -= FIXDT;
+    if (strandT < 0) { resetTrain(); setStatus('Towed back to the station', 1.6); }
+  }
+}
+
+function drawTrail() {
+  const sc = SC();
+  const c1 = color(sc.trail[0]), c2 = color(sc.trail[1]);
+  const vmax = 160 / 3.6 * ppm;
+  noFill(); strokeCap(ROUND);
+  for (let i = 1; i < trail.length; i++) {
+    const p = trail[i - 1], q = trail[i];
+    if (q.brk) continue;
+    const c = lerpColor(c1, c2, constrain(q.v / vmax, 0, 1));
+    const age = i / trail.length;
+    c.setAlpha(230 * age); stroke(c); strokeWeight(1 + 4 * age);
+    line(p.x, p.y, q.x, q.y);
+  }
+}
+
+function drawTrain() {
+  const sc = SC();
+  const cw = carW, ch = cw * 0.46;
+  const armsUp = kmh(Math.abs(v)) > 70 || wasInv;
+  for (let k = 2; k >= 0; k--) {
+    const p = look(s - k * GAP);
+    push();
+    translate(p.x, p.y);
+    rotate(Math.atan2(p.ty, p.tx));
+    // barrel-roll: squash and flip the car as it rolls around the rail
+    const cr = Math.cos(p.roll);
+    scale(1, Math.abs(cr) < 0.15 ? 0.15 * (cr < 0 ? -1 : 1) : cr);
+    const hy = -ch - 4 - cw * 0.1;
+    if (armsUp) {
+      stroke(sc.rider); strokeWeight(2);
+      for (const hx of [-cw * 0.18, cw * 0.18]) { line(hx - 3, hy, hx - 6, hy - cw * 0.32); line(hx + 3, hy, hx + 6, hy - cw * 0.32); }
+    }
+    noStroke();
+    fill(sc.rider); circle(-cw * 0.18, hy, cw * 0.24); circle(cw * 0.18, hy, cw * 0.24);
+    fill(sc.car[k]); rect(-cw / 2, -ch - 4, cw, ch, 5, k === 0 ? 9 : 5, 3, 3);
+    fill(255, 255, 255, 70); rect(-cw / 2 + 3, -ch - 1, cw - 6, 2.5, 2);
+    fill(25); circle(-cw * 0.3, -2, 5); circle(cw * 0.3, -2, 5);
+    pop();
+  }
+}
+
+function handleCenter(i) { return [loopXs[i] * W, typeFor(i) === 'cork' ? trackY - 0.45 * R : trackY - R]; }
+
+function drawHandles() {
+  const sc = SC();
+  loopXs.forEach((f, i) => {
+    const [cx, cy] = handleCenter(i);
+    const active = i === hoverLoop || i === dragging;
+    noFill();
+    stroke(red(color(sc.hud)), green(color(sc.hud)), blue(color(sc.hud)), active ? 200 : 50);
+    strokeWeight(1.5);
+    drawingContext.setLineDash([5, 5]);
+    circle(cx, cy, Math.max(R * 2.5, 40));
+    drawingContext.setLineDash([]);
+    noStroke(); fill(red(color(sc.hud)), green(color(sc.hud)), blue(color(sc.hud)), active ? 230 : 80);
+    textAlign(CENTER, CENTER); textSize(active ? 13 : 14);
+    text(active ? '⇆ drag' : '⇆', cx, cy);
+  });
+}
+
+function drawHUD() {
+  const sc = SC();
+  // felt G-force on the middle car
+  const h = 10, mid = look(s - GAP), pa = look(s - GAP - h), pb = look(s - GAP + h);
+  const dTx = (pb.tx - pa.tx) / (2 * h), dTy = (pb.ty - pa.ty) / (2 * h);
+  const ax = lastA * mid.tx + v * v * dTx, ay = lastA * mid.ty + v * v * dTy;
+  const gf = Math.hypot(ax, ay - GRAV) / GRAV;
+  gSmooth = lerp(gSmooth, gf, 0.15);
+
+  noStroke(); fill(sc.hud); textAlign(LEFT, TOP);
+  textStyle(BOLD); textSize(11); text('L O O P   L O G I C', 20, 18);
+  textSize(38); text(Math.round(kmh(Math.abs(v))), 20, 34);
+  const sw = textWidth(String(Math.round(kmh(Math.abs(v)))));
+  textStyle(NORMAL); textSize(13); text('km/h', 26 + sw, 56);
+  text(`${gSmooth.toFixed(1)} G   ·   lap ${laps}   ·   ${invCount} inversions`, 20, 82);
+  if (wasInv) { textStyle(BOLD); text('UPSIDE DOWN!', 20, 100); textStyle(NORMAL); }
+
+  if (statusT > 0 && status) {
+    const a = Math.min(1, statusT / 0.4);
+    const c = color(sc.hud); c.setAlpha(255 * a); fill(c);
+    textAlign(CENTER, TOP); textStyle(BOLD); textSize(Math.max(15, Math.min(22, W / 45)));
+    text(status, W / 2, 22);
+    textStyle(NORMAL);
+  }
+}
+
+// ---------- interaction ----------
+function loopAt(x, y) {
+  for (let i = 0; i < loopXs.length; i++) { const [cx, cy] = handleCenter(i); if (dist(x, y, cx, cy) < Math.max(R * 1.3, 22)) return i; }
+  return -1;
+}
+
+function mouseMoved() {
+  if (recording) return;
+  hoverLoop = loopAt(mouseX, mouseY);
+  cursor(hoverLoop >= 0 ? 'grab' : ARROW);
+}
+
+function mousePressed(e) {
+  if (recording || (e && e.target && e.target.tagName !== 'CANVAS')) return;
+  dragging = loopAt(mouseX, mouseY);
+  if (dragging >= 0) cursor('grabbing');
+}
+
+function mouseDragged() {
+  if (dragging < 0) return;
+  const [a, b] = loopRange();
+  let lo = a, hi = b;
+  if (dragging > 0) lo = Math.max(lo, loopXs[dragging - 1] * W + minSep);
+  if (dragging < loopXs.length - 1) hi = Math.min(hi, loopXs[dragging + 1] * W - minSep);
+  if (lo > hi) return;
+  loopXs[dragging] = constrain(mouseX, lo, hi) / W;
+  rebuild(true);
+  return false;
+}
+
+function mouseReleased() { if (dragging >= 0) { dragging = -1; cursor('grab'); } }
+
+function handleResize() {
+  layout();
+  const fr = loopXs.slice();
+  setLoopCount(Math.min(P.loops, fr.length));
+  if (fr.length === loopXs.length) loopXs = fr;
+  buildBg();
+  rebuild(true);
+}
+
+function windowResized() {
+  if (recording) return;
+  resizeCanvas(windowWidth, windowHeight);
+  handleResize();
+}
+
+function bindUI() {
+  $('launch').oninput = e => { P.launch = +e.target.value; $('vLaunch').textContent = P.launch + ' km/h'; };
+  $('loops').oninput = e => { P.loops = +e.target.value; layout(); setLoopCount(P.loops); rebuild(false); resetTrain(); };
+  $('style').onchange = e => { P.style = e.target.value; rebuild(false); resetTrain(); };
+  $('hills').oninput = e => { P.hills = e.target.value / 100; $('vHills').textContent = e.target.value + '%'; rebuild(true); };
+  $('scene').onchange = e => { P.scene = e.target.value; buildBg(); buildTrackLayer(); };
+  $('restart').onclick = resetTrain;
+  $('rec').onclick = record;
+  $('toggle').onclick = () => {
+    const p = $('panel'); p.classList.toggle('min');
+    $('toggle').textContent = p.classList.contains('min') ? '+' : '–';
+  };
+}
+
+async function record() {
+  if (recording) return;
+  recording = true;
+  const b = $('rec'); b.disabled = true; b.textContent = 'Recording…';
+  hoverLoop = -1; dragging = -1;
+  try {
+    pixelDensity(1);
+    resizeCanvas(800, 450);
+    handleResize();
+    FIXDT = 1 / 30; frameRate(30);
+    resetTrain();
+    await saveGif('my-rollercoaster', 10, { units: 'seconds', delay: 0 });
+  } catch (err) {
+    console.error(err);
+    alert('GIF recording failed: ' + err.message);
+  }
+  FIXDT = 1 / 60; frameRate(60);
+  pixelDensity(baseDensity);
+  resizeCanvas(windowWidth, windowHeight);
+  handleResize();
+  recording = false; b.disabled = false; b.textContent = '● Record 10s GIF';
+}
+</script>
+</body>
+</html>
