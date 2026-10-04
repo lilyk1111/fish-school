@@ -3,28 +3,32 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Loop Logic</title>
+<title>Bait Ball</title>
 <script src="https://cdn.jsdelivr.net/npm/p5@1.11.1/lib/p5.min.js"></script>
 <style>
-  html,body{margin:0;height:100%;background:#05070f;overflow:hidden;font-family:system-ui,-apple-system,Helvetica,sans-serif;color:#eef2ff}
+  html,body{margin:0;height:100%;background:#03142a;overflow:hidden;font-family:system-ui,-apple-system,Helvetica,sans-serif;color:#eaf6ff}
   canvas{display:block}
-  #panel{position:fixed;left:16px;bottom:16px;width:260px;max-height:calc(100vh - 32px);overflow:auto;background:rgba(10,14,30,.82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:12px 14px;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.35);box-sizing:border-box}
+  #panel{position:fixed;left:16px;bottom:16px;width:272px;max-height:calc(100vh - 32px);overflow:auto;box-sizing:border-box;background:rgba(4,22,44,.84);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:12px 14px;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.4)}
   #panel .head{display:flex;justify-content:space-between;align-items:center}
   #panel .head strong{letter-spacing:.12em;font-size:12px}
   #panel.min #body{display:none}
-  #panel label{display:flex;justify-content:space-between;margin-top:10px;margin-bottom:2px;color:#c9d2f2}
+  .tools{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+  .tools button{text-align:left;padding:7px 8px}
+  .tools button.on{background:#7fe7ff;border-color:#7fe7ff;color:#04223a;font-weight:600}
+  .tools button.on:hover{background:#7fe7ff}
+  #panel label{display:flex;justify-content:space-between;margin-top:9px;margin-bottom:2px;color:#cfe3f2}
   #panel label span{color:#fff;font-variant-numeric:tabular-nums}
   #panel label.check{justify-content:flex-start;gap:8px;align-items:center;cursor:pointer;color:#fff}
-  #panel input[type=range]{width:100%;accent-color:#ff5d8f}
-  #panel input[type=checkbox]{accent-color:#ff5d8f;width:15px;height:15px;margin:0}
-  #panel select{width:100%;padding:5px;border-radius:7px;border:1px solid rgba(255,255,255,.2);background:#141a33;color:#fff;font:inherit}
-  .hint{margin:10px 0 0;color:#9aa6cf;font-size:12px}
-  details{margin-top:8px;color:#c9d2f2;font-size:12px;line-height:1.45}
+  #panel input[type=range]{width:100%;accent-color:#7fe7ff}
+  #panel input[type=checkbox]{accent-color:#7fe7ff;width:15px;height:15px;margin:0}
+  .hint{margin:10px 0 0;color:#bdf3ff;font-size:12px;min-height:30px}
+  .sub{margin:12px 0 0;font-size:11px;letter-spacing:.1em;color:#9fc3dc}
+  details{margin-top:8px;color:#cfe3f2;font-size:12px;line-height:1.45}
   summary{cursor:pointer;color:#fff}
   details b{color:#fff}
   .btns{display:flex;gap:8px;margin-top:12px}
-  button{font:inherit;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#1d2547;color:#fff;padding:7px 10px;cursor:pointer}
-  button:hover{background:#28325e}
+  button{font:inherit;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#0f3557;color:#fff;padding:7px 10px;cursor:pointer}
+  button:hover{background:#174670}
   button:disabled{opacity:.6;cursor:wait}
   #rec{background:#ff5d8f;border-color:#ff5d8f;flex:1}
   #toggle{padding:2px 9px}
@@ -32,74 +36,55 @@
 </head>
 <body>
 <div id="panel">
-  <div class="head"><strong>LOOP LOGIC</strong><button id="toggle" title="Hide controls">–</button></div>
+  <div class="head"><strong>BAIT BALL</strong><button id="toggle" title="Hide controls">–</button></div>
   <div id="body">
-    <label>Launch speed <span id="vLaunch">90 km/h</span></label>
-    <input id="launch" type="range" min="20" max="160" value="90">
-    <label>Trains <span id="vTrains">4</span></label>
-    <input id="trains" type="range" min="1" max="8" value="4">
-    <label>Loops &amp; rolls <span id="vLoops">4</span></label>
-    <input id="loops" type="range" min="0" max="12" value="4">
-    <label>Inversion style</label>
-    <select id="style">
-      <option value="mixed">Mixed (loops, corkscrews, double loops)</option>
-      <option value="loop">Loops only</option>
-      <option value="cork">Corkscrews only</option>
-      <option value="double">Double loops only</option>
-    </select>
-    <label class="check"><input id="evolve" type="checkbox" checked> Let the track evolve</label>
-    <label>Location</label>
-    <select id="scene">
-      <option value="night">City at night</option>
-      <option value="sunset">Mountain sunset</option>
-      <option value="beach">Beach boardwalk</option>
-    </select>
-    <p class="hint">Drag any loop to move it. Change the speed and watch the track re-sculpt itself.</p>
-    <details open>
-      <summary>The rules</summary>
-      <b>Each train:</b> gravity pulls it along the slope · friction slows it · it brakes if it gets too close to the train ahead. The station launches it.<br>
-      <b>Each hill &amp; loop:</b> grows a little when a train makes it over, shrinks when a train fails.<br>
-      Nobody designs the final ride. It shapes itself to the edge of what the launch speed can handle.
+    <div class="tools" id="tools">
+      <button data-tool="shark" class="on">🦈 Be the shark</button>
+      <button data-tool="food">🦐 Drop food</button>
+      <button data-tool="current">🌀 Stir current</button>
+      <button data-tool="watch">👀 Just watch</button>
+    </div>
+    <p class="hint" id="hint"></p>
+    <label class="check"><input id="ai" type="checkbox" checked> A hungry shark hunts on its own</label>
+    <p class="sub">THE FISH'S RULES (try turning one off)</p>
+    <label>1 · Don't crowd <span id="vSep">1.6</span></label>
+    <input id="sep" type="range" min="0" max="3" step="0.1" value="1.6">
+    <label>2 · Swim the same way <span id="vAli">1.0</span></label>
+    <input id="ali" type="range" min="0" max="3" step="0.1" value="1.0">
+    <label>3 · Stay with the group <span id="vCoh">0.9</span></label>
+    <input id="coh" type="range" min="0" max="3" step="0.1" value="0.9">
+    <label>4 · Panic spreads <span id="vPan">0.88</span></label>
+    <input id="pan" type="range" min="0" max="0.97" step="0.01" value="0.88">
+    <label>Fish <span id="vN">700</span></label>
+    <input id="n" type="range" min="100" max="1400" step="50" value="700">
+    <details>
+      <summary>What's going on</summary>
+      Each fish only sees its nearest neighbours and follows four rules: <b>don't crowd them</b>, <b>swim the way they swim</b>, <b>stay close to them</b>, and <b>flee the shark; if a neighbour panics, panic too</b>.<br>
+      Nobody leads. The swirling ball, the splits and merges, the tornado shapes and the flash of panic rippling through the school all emerge.
     </details>
-    <div class="btns"><button id="restart">Reset track</button><button id="rec">● Record 10s GIF</button></div>
+    <div class="btns"><button id="reset">Reset</button><button id="rec">● Record 10s GIF</button></div>
   </div>
 </div>
 
 <script>
-// ---------- state ----------
-const P = { launch: 90, trains: 4, loops: 4, wantLoops: 4, scene: 'night', style: 'mixed', evolve: true };
-let W, H, ppm, GRAV, groundY, trackY, R, D, stationEnd, minSep, carW, GAP, TLEN;
-let loopXs = [];        // inversion centres, as fractions of width (kept in left-to-right order)
-let loopP = [];         // evolving loop size (vertical radius, metres), one per inversion
-let hillP = [];         // evolving hill height (metres), one per gap between inversions
-let pts = [], els = [], loopEl = [], L = 1;
-let bgLayer = null, trackLayer = null;
-let trains = [];
-let laps = 0, invCount = 0;
-let status = '', statusT = 0;
-let gSmooth = 1;
-let dragging = -1, hoverLoop = -1;
-let recording = false, baseDensity = 1;
-let FIXDT = 1 / 60;
-const SUB = 10;
-let dirty = false, lastBuild = 0;
-let flashes = {};
-
-const SCENES = {
-  night:  { sky:['#060a1c','#1d2a5c'], far:'#141c40', near:'#0a1029', ground:'#05070f',
-            rail:'#9fd3ff', railDark:'#1b2552', support:'rgba(160,190,255,0.22)',
-            car:['#ff5d8f','#ffd166','#4cc9f0'], rider:'#ffe0c2', hud:'#e8eeff', trail:['#4cc9f0','#ff5d8f'] },
-  sunset: { sky:['#2b1055','#ff8a5c'], far:'#7a3466', near:'#41183f', ground:'#22102a',
-            rail:'#fff1d6', railDark:'#5a2140', support:'rgba(255,220,200,0.25)',
-            car:['#2ec4b6','#ffbf69','#ff6b6b'], rider:'#ffe0c2', hud:'#fff5eb', trail:['#ffd166','#ff3c7d'] },
-  beach:  { sky:['#4fc0ef','#e3f7ff'], far:'#2bb3d9', near:'#127aa6', ground:'#f0d39a',
-            rail:'#d7263d', railDark:'#6d0f1f', support:'rgba(90,60,30,0.35)',
-            car:['#0353a4','#f4a259','#2a9d8f'], rider:'#ffe0c2', hud:'#08304a', trail:['#ffffff','#ff2e63'] }
+// ---------- world ----------
+const WW = 1600, WH = 900, FLOOR = WH - 110;
+const PER = 46, SEP = 15, GC = 50;
+const HINTS = {
+  shark: 'Move your mouse through the school. Watch it split, flash and re-form.',
+  food: 'Click or drag to drop shrimp. Watch the school swarm them.',
+  current: 'Drag to stir the water. Watch the school ride the current.',
+  watch: 'Hands off. Watch the shapes the school makes on its own.'
 };
-const SC = () => SCENES[P.scene];
-const kmh = px => px / ppm * 3.6;
+const P = { tool: 'shark', ai: true, sep: 1.6, ali: 1.0, coh: 0.9, pan: 0.88, n: 700 };
+let fish = [], food = [], snow = [], rocks = [], kelp = [];
+let shark, mshark = { x: -999, y: -999, vx: 1, vy: 0, on: false };
+let flow, FW = 40, FH = 23;
+let bgLayer = null, sc = 1, ox = 0, oy = 0, t = 0;
+let caught = 0, overPanel = false;
+let status = '', statusT = 0, recording = false, baseDensity = 1;
+const grid = new Map();
 const $ = id => document.getElementById(id);
-const mod = x => ((x % L) + L) % L;
 
 // ---------- setup ----------
 function setup() {
@@ -108,605 +93,355 @@ function setup() {
   pixelDensity(baseDensity);
   frameRate(60);
   textFont('system-ui, -apple-system, Helvetica, sans-serif');
-  layout();
-  setLoopCount(P.wantLoops);
-  resetEvolution();
-  rebuild(false);
-  buildBg();
-  resetTrains();
+  view();
+  buildScene();
+  reset();
   bindUI();
-  setStatus('Watch the track sculpt itself…', 3);
 }
+function view() { sc = Math.min(width / WW, height / WH); ox = (width - WW * sc) / 2; oy = (height - WH * sc) / 2; }
+function windowResized() { if (recording) return; resizeCanvas(windowWidth, windowHeight); view(); }
+const wx = () => (mouseX - ox) / sc, wy = () => (mouseY - oy) / sc;
+const inWorld = () => !overPanel && focused && wx() > 0 && wx() < WW && wy() > 0 && wy() < WH;
 
-function layout() {
-  W = width; H = height;
-  ppm = H / 40;                 // the screen is ~40 m tall
-  GRAV = 9.81 * ppm;
-  groundY = H * 0.88;
-  trackY = H * 0.72;
-  stationEnd = Math.max(W * 0.15, 110);
-  const fitR = (W - stationEnd - W * 0.04) / (Math.max(1, P.wantLoops) * 3.7 + 1);
-  R = Math.max(14, Math.min(H * 0.13, W * 0.08, fitR));
-  D = 1.2 * R;
-  minSep = 3.6 * R;
-  carW = Math.max(14, Math.min(R * 0.36, H * 0.045));
-  GAP = carW * 1.15;
-  TLEN = 2 * GAP + carW;
-}
+function buildScene() {
+  randomSeed(4); noiseSeed(4);
+  rocks = [
+    { x: 260, y: FLOOR + 10, r: 70 }, { x: 360, y: FLOOR + 30, r: 46 },
+    { x: 1180, y: FLOOR + 14, r: 82 }, { x: 1290, y: FLOOR + 36, r: 50 }, { x: 760, y: FLOOR + 40, r: 40 }
+  ];
+  kelp = [];
+  for (let i = 0; i < 16; i++) kelp.push({ x: random(40, WW - 40), h: random(140, 330), ph: random(TWO_PI), w: random(5, 9) });
+  snow = [];
+  for (let i = 0; i < 140; i++) snow.push({ x: random(WW), y: random(WH), s: random(1, 2.6), v: random(0.1, 0.35) });
 
-const TYPES = { mixed: ['loop', 'cork', 'loop', 'double'], loop: ['loop'], cork: ['cork'], double: ['double'] };
-function typeFor(i) { const t = TYPES[P.style]; return t[i % t.length]; }
-function footprint(type) { return type === 'double' ? 2 * D : type === 'cork' ? 2.4 * R : D; }
-function loopRange() { return [stationEnd + 2 * R, W - 2.2 * R]; }
-function maxLoops() { const [a, b] = loopRange(); return Math.max(0, Math.floor((b - a) / minSep)); }
-
-function setLoopCount(n) {
-  const m = maxLoops();
-  const clamped = n > m;
-  n = Math.min(n, m);
-  P.loops = n;
-  const [a, b] = loopRange();
-  loopXs = [];
-  for (let i = 0; i < n; i++) loopXs.push((a + (i + 0.5) * (b - a) / n) / W);
-  if ($('loops')) $('vLoops').textContent = clamped ? n + ' (max here)' : n;
-}
-
-function resetEvolution() {
-  loopP = loopXs.map(() => R / ppm);
-  hillP = new Array(loopXs.length + 1).fill(3);
-  flashes = {};
-}
-
-// ---------- track ----------
-function buildTrack() {
-  pts = []; els = []; loopEl = [];
-  const step = 3;
-  const begin = (kind, param) => { els.push({ kind, param, s0: 0, s1: 0, top: null, maxM: Infinity }); return els.length - 1; };
-  const add = (x, y, e, roll = 0) => pts.push({ x, y, e, roll });
-
-  const st = begin('station', -1);
-  for (let x = 0; x < stationEnd; x += step) add(x, trackY, st);
-  let cursor = stationEnd;
-
-  const hill = (a, b, j) => {
-    const w = b - a; if (w < step * 2) return;
-    const e = begin('hill', j);
-    const maxPx = Math.min(H * 0.6, w * 1.4);
-    els[e].maxM = maxPx / ppm;
-    const h = Math.min(hillP[j] * ppm, maxPx);
-    for (let x = a; x < b; x += step) {
-      const u = (x - a) / w;
-      add(x, trackY - h * Math.sin(Math.PI * u) ** 2, e);
-    }
-  };
-  const addLoop = (x0, ry, e) => {
-    const N = 240;
-    for (let k = 0; k < N; k++) {
-      const t = k / N;
-      add(x0 + D * t + R * Math.sin(2 * Math.PI * t), trackY - ry * (1 - Math.cos(2 * Math.PI * t)), e);
-    }
-  };
-  const addCork = (x0, ry, e) => {
-    // a corkscrew seen from the side: the train rolls a full 360° around the rail
-    const N = 200, len = 2.4 * R;
-    for (let k = 0; k < N; k++) {
-      const t = k / N;
-      add(x0 + len * t, trackY - 0.45 * ry * (1 - Math.cos(2 * Math.PI * t)), e, 2 * Math.PI * t);
-    }
-  };
-
-  const loopMaxM = H * 0.31 / ppm, loopMinM = R * 0.5 / ppm;
-  loopXs.forEach((f, i) => {
-    const type = typeFor(i), fw = footprint(type), x0 = f * W - fw / 2;
-    hill(cursor, x0, i);
-    const e = begin(type, i);
-    els[e].maxM = loopMaxM; els[e].minM = loopMinM;
-    loopEl[i] = e;
-    const ry = Math.max(R * 0.5, Math.min(loopP[i] * ppm, H * 0.31));
-    if (type === 'loop') addLoop(x0, ry, e);
-    else if (type === 'double') { addLoop(x0, ry, e); addLoop(x0 + D, ry, e); }
-    else addCork(x0, ry, e);
-    cursor = x0 + fw;
-  });
-  hill(cursor, W, loopXs.length);
-  add(W, trackY, els.length - 1);
-
-  pts[0].s = 0;
-  for (let i = 1; i < pts.length; i++) pts[i].s = pts[i - 1].s + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-  L = pts[pts.length - 1].s;
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
-    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
-    pts[i].tx = dx / len; pts[i].ty = dy / len;
-    pts[i].nx = -pts[i].ty; pts[i].ny = pts[i].tx;
+  bgLayer = createGraphics(WW, WH);
+  bgLayer.pixelDensity(1);
+  const g = bgLayer, top = color('#1f7fb8'), mid = color('#0b3f6e'), bot = color('#031a33');
+  for (let y = 0; y < WH; y++) {
+    const k = y / WH;
+    g.stroke(k < 0.5 ? lerpColor(top, mid, k * 2) : lerpColor(mid, bot, (k - 0.5) * 2));
+    g.line(0, y, WW, y);
   }
-  for (const el of els) { el.s0 = Infinity; el.s1 = -Infinity; }
-  for (const p of pts) {
-    const el = els[p.e];
-    el.s0 = Math.min(el.s0, p.s); el.s1 = Math.max(el.s1, p.s);
-    if (!el.top || p.y < el.top.y) el.top = { x: p.x, y: p.y };
+  // shimmering surface
+  g.noStroke(); g.fill(180, 230, 255, 40);
+  for (let x = 0; x < WW; x += 40) g.ellipse(x + random(-10, 10), 4, random(60, 120), random(6, 14));
+  // sandy floor
+  g.fill('#0c2a3f'); g.beginShape(); g.vertex(0, WH);
+  for (let x = 0; x <= WW; x += 10) g.vertex(x, FLOOR + 30 + noise(x * 0.004) * 50);
+  g.vertex(WW, WH); g.endShape(CLOSE);
+  g.fill('#123850'); g.beginShape(); g.vertex(0, WH);
+  for (let x = 0; x <= WW; x += 10) g.vertex(x, FLOOR + 60 + noise(x * 0.006 + 9) * 40);
+  g.vertex(WW, WH); g.endShape(CLOSE);
+}
+
+function newFish(x, y) {
+  const a = random(TWO_PI);
+  return { x, y, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2, panic: 0, p0: 0, ph: random(TWO_PI), s: random(0.85, 1.15), shade: random(-18, 18) };
+}
+function reset() {
+  fish = []; food = []; caught = 0;
+  for (let i = 0; i < P.n; i++) fish.push(newFish(WW / 2 + random(-260, 260), WH * 0.42 + random(-140, 140)));
+  shark = { x: -120, y: WH * 0.35, vx: 2, vy: 0, lunge: 0, cool: 0 };
+  flow = new Float32Array(FW * FH * 2);
+  setStatus('Move your mouse through the school', 3);
+}
+function setCount(n) {
+  P.n = n;
+  while (fish.length < n) fish.push(newFish(random() < 0.5 ? -10 : WW + 10, random(80, FLOOR - 60)));
+  while (fish.length > n) fish.pop();
+}
+
+// ---------- the four rules ----------
+function wrapDx(d) { return d > WW / 2 ? d - WW : d < -WW / 2 ? d + WW : d; }
+
+function stepFish() {
+  grid.clear();
+  for (const f of fish) {
+    f.p0 = f.panic;
+    const k = (Math.floor((f.x + WW) % WW / GC)) + Math.floor(f.y / GC) * 100;
+    let a = grid.get(k); if (!a) grid.set(k, a = []); a.push(f);
   }
-}
+  const preds = [];
+  if (mshark.on) preds.push(mshark);
+  if (P.ai) preds.push(shark);
+  const cols = Math.ceil(WW / GC);
 
-function look(q) {
-  q = mod(q);
-  let lo = 0, hi = pts.length - 1;
-  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (pts[m].s <= q) lo = m; else hi = m; }
-  const a = pts[lo], b = pts[hi];
-  const u = (q - a.s) / ((b.s - a.s) || 1);
-  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
-  return { x: a.x + dx * u, y: a.y + dy * u, tx: dx / len, ty: dy / len, e: a.e, kind: els[a.e].kind, roll: a.roll + (b.roll - a.roll) * u };
-}
-
-// remember each train as "element + fraction through it" so it stays put while the track reshapes
-function toRel(s) { const p = look(s), el = els[p.e]; return { e: p.e, f: (mod(s) - el.s0) / Math.max(1, el.s1 - el.s0) }; }
-function fromRel(r) { const el = els[Math.min(r.e, els.length - 1)]; return mod(el.s0 + r.f * (el.s1 - el.s0)); }
-
-function rebuild(keep = true) {
-  const saved = keep && els.length ? trains.map(t => toRel(t.s)) : null;
-  buildTrack();
-  drawTrackLayer();
-  if (saved) trains.forEach((t, i) => { t.s = fromRel(saved[i]); });
-}
-
-function freshLayer(old) {
-  if (old && old.width === W && old.height === H) { old.clear(); return old; }
-  if (old) old.remove();
-  return createGraphics(W, H);
-}
-
-function drawTrackLayer() {
-  const sc = SC();
-  trackLayer = freshLayer(trackLayer);
-  const g = trackLayer;
-  g.stroke(sc.support); g.strokeWeight(2);
-  for (let i = 0; i < pts.length; i += 10) {
-    const p = pts[i], k = els[p.e].kind;
-    if (k !== 'hill' && k !== 'station') continue;
-    g.line(p.x, p.y + 4, p.x, groundY);
-  }
-  loopXs.forEach((f, i) => {
-    if (typeFor(i) === 'cork') return;
-    g.strokeWeight(4); g.line(f * W, trackY - R * 0.2, f * W, groundY);
-  });
-  // rails (they pinch together where a corkscrew twists side-on)
-  const path = off => { g.beginShape(); for (const p of pts) { const c = Math.cos(p.roll) * off; g.vertex(p.x + p.nx * c, p.y + p.ny * c); } g.endShape(); };
-  g.noFill();
-  g.stroke(sc.railDark); g.strokeWeight(9); path(0);
-  g.stroke(sc.rail); g.strokeWeight(2); path(3.4); path(-3.4);
-  g.strokeWeight(1.2);
-  for (let i = 0; i < pts.length; i += 4) {
-    const p = pts[i], c = Math.cos(p.roll) * 3.4;
-    g.line(p.x + p.nx * c, p.y + p.ny * c, p.x - p.nx * c, p.y - p.ny * c);
-  }
-  // corkscrew helix spine
-  g.stroke(sc.rail); g.strokeWeight(1.5); g.noFill();
-  let open = false;
-  for (const p of pts) {
-    if (els[p.e].kind === 'cork') {
-      if (!open) { g.beginShape(); open = true; }
-      const c = Math.sin(p.roll) * R * 0.3;
-      g.vertex(p.x + p.nx * c, p.y + p.ny * c);
-    } else if (open) { g.endShape(); open = false; }
-  }
-  if (open) g.endShape();
-  // station
-  g.noStroke(); g.fill(sc.railDark);
-  g.rect(0, trackY + 7, stationEnd, 9, 0, 3, 3, 0);
-  g.fill(sc.rail); g.textSize(10); g.textStyle(BOLD); g.textAlign(LEFT, TOP);
-  g.text('STATION', 8, trackY + 20);
-}
-
-// ---------- scenery ----------
-function buildBg() {
-  const sc = SC();
-  bgLayer = freshLayer(bgLayer);
-  const g = bgLayer;
-  randomSeed(3); noiseSeed(5);
-  const top = color(sc.sky[0]), bot = color(sc.sky[1]);
-  for (let y = 0; y < groundY; y++) { g.stroke(lerpColor(top, bot, y / groundY)); g.line(0, y, W, y); }
-  g.noStroke();
-  if (P.scene === 'night') {
-    for (let i = 0; i < W * H / 3500; i++) { g.fill(255, random(70, 220)); g.circle(random(W), random(groundY * 0.65), random(0.8, 2.2)); }
-    g.fill(235, 238, 255); g.circle(W * 0.84, H * 0.15, H * 0.08);
-    g.fill(sc.sky[0]); g.circle(W * 0.84 + H * 0.022, H * 0.14, H * 0.07);
-    skyline(g, sc.far, H * 0.16, H * 0.42, false);
-    skyline(g, sc.near, H * 0.06, H * 0.26, true);
-  } else if (P.scene === 'sunset') {
-    for (let r = H * 0.3; r > 0; r -= 4) { g.fill(255, 200, 120, 6); g.circle(W * 0.68, groundY - H * 0.2, r * 2); }
-    g.fill('#ffd27a'); g.circle(W * 0.68, groundY - H * 0.2, H * 0.14);
-    mountains(g, sc.far, groundY - H * 0.28, 0.003, H * 0.32, 0);
-    mountains(g, sc.near, groundY - H * 0.12, 0.006, H * 0.22, 100);
-  } else {
-    g.fill(255, 250, 220); g.circle(W * 0.8, H * 0.14, H * 0.1);
-    g.fill(255, 250, 220, 50); g.circle(W * 0.8, H * 0.14, H * 0.16);
-    const seaTop = H * 0.56;
-    const s1 = color(sc.far), s2 = color(sc.near);
-    for (let y = seaTop; y < groundY; y++) { g.stroke(lerpColor(s1, s2, (y - seaTop) / (groundY - seaTop))); g.line(0, y, W, y); }
-    g.stroke(255, 255, 255, 90); g.strokeWeight(1.5);
-    for (let i = 0; i < W / 18; i++) { const x = random(W), y = random(seaTop + 6, groundY - 4); g.line(x, y, x + random(10, 30), y); }
-    g.noStroke();
-  }
-  g.fill(sc.ground); g.rect(0, groundY, W, H - groundY);
-}
-
-function skyline(g, col, minH, maxH, windows) {
-  let x = 0;
-  while (x < W) {
-    const w = random(28, 80) * Math.max(0.6, H / 800), h = random(minH, maxH);
-    g.fill(col); g.rect(x, groundY - h, w + 1, h);
-    if (windows) {
-      g.fill(255, 214, 120, 150);
-      for (let wy = groundY - h + 8; wy < groundY - 8; wy += 10)
-        for (let wx = x + 5; wx < x + w - 6; wx += 9) if (random() < 0.28) g.rect(wx, wy, 3, 4);
-    }
-    x += w;
-  }
-}
-
-function mountains(g, col, baseY, freq, amp, off) {
-  g.fill(col); g.beginShape(); g.vertex(0, groundY);
-  for (let x = 0; x <= W + 8; x += 8) g.vertex(x, baseY - noise(x * freq * (800 / H) + off) * amp);
-  g.vertex(W, groundY); g.endShape(CLOSE);
-}
-
-// ---------- trains ----------
-function makeTrain(i) {
-  return { id: i, s: 0, v: 0, a: 0, lastDir: 0, reversals: 0, active: false, wait: 0,
-           tailE: 0, attempting: true, blocked: false, inStation: false, wasInv: false, trail: [] };
-}
-function resetTrains() {
-  trains = [];
-  for (let i = 0; i < P.trains; i++) trains.push(makeTrain(i));
-  laps = 0; invCount = 0;
-}
-function setTrainCount(n) {
-  while (trains.length < n) trains.push(makeTrain(trains.length));
-  while (trains.length > n) trains.pop();
-}
-const SPAWN = () => TLEN + 4;
-function stationClear() {
-  const s0 = SPAWN();
-  for (const t of trains) {
-    if (!t.active) continue;
-    const ahead = mod(t.s - s0) - TLEN, behind = mod(s0 - t.s) - TLEN;
-    if (Math.min(ahead, behind) < carW * 3) return false;
-  }
-  return true;
-}
-function releaseTrains(dt) {
-  for (const t of trains) {
-    if (t.active) continue;
-    t.wait -= dt;
-    if (t.wait <= 0 && stationClear()) {
-      Object.assign(t, { active: true, s: SPAWN(), v: 0, lastDir: 0, reversals: 0, tailE: 0, attempting: true, trail: [] });
-      return;
-    }
-  }
-}
-
-// ---------- the rules ----------
-function physics() {
-  const dt = FIXDT / SUB;
-  const tgt = P.launch / 3.6 * ppm;
-  for (let k = 0; k < SUB; k++) {
-    const act = trains.filter(t => t.active);
-
-    for (const t of act) {
-      const c0 = look(t.s), c1 = look(t.s - GAP), c2 = look(t.s - 2 * GAP);
-      t.inStation = c1.kind === 'station';
-      let a;
-      if (t.inStation) {
-        a = (tgt - t.v) * 9;                                   // the station launches the train
-      } else {
-        a = GRAV * (c0.ty + c1.ty + c2.ty) / 3;                // rule 1: gravity along the slope
-        if (Math.abs(t.v) > 0.01 * ppm) a -= Math.sign(t.v) * 0.012 * GRAV;   // rule 2: friction
-        a -= 0.0008 / ppm * t.v * Math.abs(t.v);               //          + air drag
-      }
-      t.v += a * dt; t.a = a; t.blocked = false;
-    }
-
-    // rule 3: brake if too close to the train ahead (bumping trains share their speed)
-    if (act.length > 1) {
-      act.sort((a, b) => a.s - b.s);
-      for (let i = 0; i < act.length; i++) {
-        const me = act[i], ah = act[(i + 1) % act.length];
-        const gap = mod(ah.s - me.s) - TLEN;
-        if (gap < carW * 2 && me.v > ah.v) {
-          me.blocked = true;
-          if (gap < carW * 0.25) {
-            const m = (me.v + ah.v) / 2; me.v = m; ah.v = m; ah.blocked = true;
-            if (gap < 0) me.s = mod(ah.s - TLEN);
-          } else me.v -= (me.v - ah.v) * 0.25;
-        }
+  for (const f of fish) {
+    let n = 0, ax = 0, ay = 0, cx = 0, cy = 0, sx = 0, sy = 0, maxP = 0;
+    const gx = Math.floor((f.x + WW) % WW / GC), gy = Math.floor(f.y / GC);
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+      const cell = grid.get(((gx + a + cols) % cols) + (gy + b) * 100); if (!cell) continue;
+      for (const o of cell) {
+        if (o === f) continue;
+        const dx = wrapDx(o.x - f.x), dy = o.y - f.y, d2 = dx * dx + dy * dy;
+        if (d2 > PER * PER) continue;
+        const d = Math.sqrt(d2) || 0.01;
+        n++; ax += o.vx; ay += o.vy; cx += dx; cy += dy;
+        if (d < SEP) { sx -= dx / d * (SEP - d) / SEP; sy -= dy / d * (SEP - d) / SEP; }
+        if (d < 30 && o.p0 > maxP) maxP = o.p0;
       }
     }
+    // rule 4: panic is contagious, then fades
+    f.panic = Math.max(f.panic * 0.95, maxP * P.pan);
 
-    for (const t of act) {
-      const ps = t.s;
-      t.s = mod(t.s + t.v * dt);
-      if (t.v > 0 && ps > L * 0.8 && t.s < L * 0.2) laps++;
-
-      // the whole train made it past an element -> that element grows
-      const te = look(t.s - 2 * GAP).e;
-      if (te !== t.tailE) {
-        if (t.v > 0 && t.attempting) {
-          if (te > t.tailE) for (let e = t.tailE; e < te; e++) cleared(e, t);
-          else if (te === 0 && t.tailE === els.length - 1) cleared(t.tailE, t);
-        }
-        t.tailE = te;
+    const maxS = 2.6 + f.panic * 2.6, maxF = 0.07 + f.panic * 0.12;
+    let fx = 0, fy = 0;
+    const steer = (dx, dy, w) => {
+      const m = Math.hypot(dx, dy); if (m < 1e-6) return;
+      let sx2 = dx / m * maxS - f.vx, sy2 = dy / m * maxS - f.vy;
+      const sm = Math.hypot(sx2, sy2); if (sm > maxF) { sx2 *= maxF / sm; sy2 *= maxF / sm; }
+      fx += sx2 * w; fy += sy2 * w;
+    };
+    if (n) {
+      steer(sx, sy, P.sep * (1 + f.panic));          // rule 1: don't crowd
+      steer(ax, ay, P.ali);                           // rule 2: swim the same way
+      steer(cx, cy, P.coh * (1 - f.panic * 0.6));     // rule 3: stay with the group
+    }
+    // rule 4: flee the shark
+    for (const p of preds) {
+      const dx = wrapDx(f.x - p.x), dy = f.y - p.y, d = Math.hypot(dx, dy);
+      if (d < 170) {
+        steer(dx, dy, 5 * (1 - d / 170) + 1);
+        if (d < 120) f.panic = 1;
       }
-      if (t.inStation) { t.attempting = true; t.reversals = 0; }
-
-      const dir = Math.sign(t.v);
-      if (dir !== 0) {
-        if (t.lastDir > 0 && dir < 0 && !t.inStation) rolledBack(t);
-        t.lastDir = dir;
+    }
+    // food
+    if (food.length && f.panic < 0.5) {
+      let best = null, bd = 230;
+      for (const c of food) { const d = Math.hypot(wrapDx(c.x - f.x), c.y - f.y); if (d < bd) { bd = d; best = c; } }
+      if (best) {
+        steer(wrapDx(best.x - f.x), best.y - f.y, 1.4);
+        if (bd < 7) { best.bites--; }
       }
-      if (!t.active) break;
+    }
+    // rocks, surface and floor
+    for (const r of rocks) {
+      const dx = f.x - r.x, dy = f.y - r.y, d = Math.hypot(dx, dy);
+      if (d < r.r + 30) steer(dx, dy, 3 * (1 - (d - r.r) / 30));
+    }
+    if (f.y < 50) fy += 0.06 * (50 - f.y) / 50 * 3;
+    if (f.y > FLOOR - 30) fy -= 0.06 * (f.y - FLOOR + 30) / 30 * 3;
+
+    f.vx += fx; f.vy += fy;
+    // currents you stir
+    const fi = (Math.min(FH - 1, Math.max(0, Math.floor(f.y / WH * FH))) * FW + Math.min(FW - 1, Math.max(0, Math.floor((f.x + WW) % WW / WW * FW)))) * 2;
+    f.vx += flow[fi] * 0.05; f.vy += flow[fi + 1] * 0.05;
+
+    const sp = Math.hypot(f.vx, f.vy), lim = maxS + Math.hypot(flow[fi], flow[fi + 1]) * 0.3;
+    if (sp > lim) { f.vx *= lim / sp; f.vy *= lim / sp; }
+    if (sp < 1.2) { f.vx *= 1.2 / (sp || 1); f.vy *= 1.2 / (sp || 1); }
+    f.x = (f.x + f.vx + WW) % WW; f.y = Math.max(8, Math.min(WH - 8, f.y + f.vy));
+    f.ph += 0.25 + sp * 0.12;
+  }
+  food = food.filter(c => c.bites > 0 && c.y < FLOOR + 30);
+}
+
+function stepShark() {
+  // the AI shark: cruise, pick the nearest fish, lunge
+  let best = null, bd = 420;
+  for (const f of fish) { const d = Math.hypot(wrapDx(f.x - shark.x), f.y - shark.y); if (d < bd) { bd = d; best = f; } }
+  shark.cool = Math.max(0, shark.cool - 1);
+  let tx, ty;
+  if (best && shark.cool === 0) { tx = wrapDx(best.x - shark.x); ty = best.y - shark.y; }
+  else { tx = Math.cos(t * 0.004) * 100 + 60; ty = (WH * 0.38 + Math.sin(t * 0.007) * 180) - shark.y; }
+  const near = best && bd < 130 && shark.cool === 0;
+  const maxS = near ? 5.0 : 2.3, m = Math.hypot(tx, ty) || 1;
+  shark.vx += (tx / m * maxS - shark.vx) * 0.035; shark.vy += (ty / m * maxS - shark.vy) * 0.035;
+  shark.x = (shark.x + shark.vx + WW) % WW; shark.y = Math.max(60, Math.min(FLOOR - 40, shark.y + shark.vy));
+  if (best && bd < 16 && shark.cool === 0) {
+    caught++; shark.cool = 90;
+    const i = fish.indexOf(best);
+    fish[i] = newFish(random() < 0.5 ? -10 : WW + 10, random(80, FLOOR - 60));
+  }
+}
+
+function stepWorld() {
+  t++;
+  // mouse shark
+  if (P.tool === 'shark' && inWorld() && !recording) {
+    const x = wx(), y = wy();
+    if (mshark.on) { mshark.vx = lerp(mshark.vx, x - mshark.x, 0.3); mshark.vy = lerp(mshark.vy, y - mshark.y, 0.3); }
+    mshark.x = x; mshark.y = y; mshark.on = true;
+  } else mshark.on = false;
+  // stirring
+  if (P.tool === 'current' && mouseIsPressed && inWorld() && !recording) {
+    const mx = wx(), my = wy(), dvx = (mouseX - pmouseX) / sc, dvy = (mouseY - pmouseY) / sc;
+    const gx = Math.floor(mx / WW * FW), gy = Math.floor(my / WH * FH);
+    for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
+      const x = gx + i, y = gy + j; if (x < 0 || y < 0 || x >= FW || y >= FH) continue;
+      const w = 1 - Math.hypot(i, j) / 3; if (w <= 0) continue;
+      const k = (y * FW + x) * 2;
+      flow[k] = constrain(flow[k] + dvx * w * 0.6, -14, 14); flow[k + 1] = constrain(flow[k + 1] + dvy * w * 0.6, -14, 14);
     }
   }
+  for (let k = 0; k < flow.length; k++) flow[k] *= 0.985;
+  if (P.tool === 'food' && mouseIsPressed && inWorld() && !recording && frameCount % 4 === 0 && food.length < 80)
+    food.push({ x: wx() + random(-12, 12), y: wy() + random(-8, 8), bites: 6, ph: random(TWO_PI) });
+  for (const c of food) { c.y += 0.35; c.ph += 0.05; c.x += Math.sin(c.ph) * 0.3; }
+  if (P.ai) stepShark();
+  stepFish();
+  for (const s of snow) { s.y += s.v; s.x += Math.sin((t + s.y) * 0.01) * 0.15; if (s.y > WH) { s.y = -5; s.x = random(WW); } }
 }
-
-// rule 4: the track adapts
-function cleared(e, t) {
-  if (!els[e] || els[e].kind === 'station') return;
-  t.reversals = 0;
-  if (!P.evolve) return;
-  const el = els[e];
-  if (el.kind === 'hill') hillP[el.param] = Math.min(el.maxM, hillP[el.param] + 0.5);
-  else loopP[el.param] = Math.min(el.maxM, loopP[el.param] + 0.25);
-  flashes[e] = { t: 0.7, good: true };
-  dirty = true;
-}
-
-function failed(e) {
-  const el = els[e];
-  if (!el || el.kind === 'station') return;
-  const what = el.kind === 'hill' ? "Couldn't crest the hill" : el.kind === 'cork' ? 'Stalled in the corkscrew' : 'Too slow for the loop';
-  setStatus(what + (P.evolve ? ', so it shrinks' : '! Rolling back…'), 1.8);
-  if (!P.evolve) return;
-  if (el.kind === 'hill') hillP[el.param] = Math.max(0.3, hillP[el.param] - Math.max(1, hillP[el.param] * 0.12));
-  else loopP[el.param] = Math.max(el.minM, loopP[el.param] - Math.max(0.5, loopP[el.param] * 0.12));
-  flashes[e] = { t: 0.9, good: false };
-  dirty = true;
-}
-
-function rolledBack(t) {
-  t.reversals++;
-  if (!t.blocked && t.attempting) {
-    const e = look(t.s).e;
-    if (els[e].kind !== 'station') { failed(e); t.attempting = false; }
-  }
-  if (t.reversals >= 4) {
-    t.active = false; t.wait = 1.2;
-    setStatus('A train got stranded and was towed back', 2);
-  }
-}
-
-function setStatus(msg, tm) { status = msg; statusT = tm; }
 
 // ---------- drawing ----------
 function draw() {
-  if (dirty && millis() - lastBuild > 120) { rebuild(true); dirty = false; lastBuild = millis(); }
-  releaseTrains(FIXDT);
-  physics();
-
-  image(bgLayer, 0, 0, W, H);
-  image(trackLayer, 0, 0, W, H);
-
-  for (const t of trains) {
-    if (!t.active) { t.trail = []; continue; }
-    const f = look(t.s);
-    const up = f.tx * Math.cos(f.roll);
-    if (!t.wasInv && up < -0.3) { t.wasInv = true; invCount++; }
-    else if (t.wasInv && up > 0.3) t.wasInv = false;
-    const last = t.trail[t.trail.length - 1];
-    t.trail.push({ x: f.x, y: f.y, v: Math.abs(t.v), brk: !last || Math.hypot(f.x - last.x, f.y - last.y) > 60 });
-    if (t.trail.length > 50) t.trail.shift();
-  }
-
-  drawLabels();
-  drawFlashes();
-  for (const t of trains) if (t.active) drawTrail(t);
-  for (const t of trains) if (t.active) drawTrain(t);
-  if (!recording) drawHandles();
+  stepWorld();
+  if (recording) stepWorld();          // GIF runs at 30 fps, so keep real-time speed
+  background('#03142a');
+  push();
+  translate(ox, oy); scale(sc);
+  image(bgLayer, 0, 0, WW, WH);
+  drawRays();
+  drawKelp();
+  drawSnow();
+  drawFlow();
+  drawFood();
+  drawFish();
+  if (P.ai) drawShark(shark, 1);
+  for (const r of rocks) drawRock(r);
+  if (!recording) drawCursor();
+  pop();
   drawHUD();
-  statusT -= FIXDT;
+  statusT -= 1 / 60;
 }
 
-function hudCol(a) { const c = color(SC().hud); c.setAlpha(a); return c; }
-
-function drawLabels() {
-  noStroke(); fill(hudCol(140)); textAlign(CENTER, BOTTOM); textStyle(NORMAL); textSize(10);
-  for (const el of els) {
-    if (el.kind === 'station' || !el.top) continue;
-    const m = (trackY - el.top.y) / ppm;
-    if (m < 0.8) continue;
-    text(Math.round(m) + ' m', el.top.x, el.top.y - 10);
+function drawRays() {
+  noStroke(); blendMode(ADD);
+  for (let i = 0; i < 7; i++) {
+    const x = (i + 0.5) * WW / 7 + Math.sin(t * 0.004 + i) * 60, w = 50 + 30 * Math.sin(t * 0.006 + i * 2);
+    fill(120, 200, 255, 10);
+    quad(x - w, 0, x + w, 0, x + w * 2.4 + 160, WH * 0.85, x - w * 0.4 + 160, WH * 0.85);
   }
+  blendMode(BLEND);
 }
 
-function drawFlashes() {
-  for (const k in flashes) {
-    const f = flashes[k], el = els[k];
-    f.t -= FIXDT;
-    if (f.t <= 0 || !el || !el.top) { delete flashes[k]; continue; }
-    const a = f.t / (f.good ? 0.7 : 0.9);
-    const c = color(f.good ? '#7CFFB2' : '#ff5d5d');
-    c.setAlpha(220 * a);
-    noFill(); stroke(c); strokeWeight(2);
-    circle(el.top.x, el.top.y, 8 + (1 - a) * 26);
-    noStroke(); fill(c); textAlign(CENTER, BOTTOM); textStyle(BOLD); textSize(13);
-    text(f.good ? '+' : '−', el.top.x, el.top.y - 22 - (1 - a) * 8);
-    textStyle(NORMAL);
-  }
-}
-
-function drawTrail(t) {
-  const sc = SC();
-  const c1 = color(sc.trail[0]), c2 = color(sc.trail[1]);
-  const vmax = 160 / 3.6 * ppm;
-  noFill(); strokeCap(ROUND);
-  for (let i = 1; i < t.trail.length; i++) {
-    const p = t.trail[i - 1], q = t.trail[i];
-    if (q.brk) continue;
-    const c = lerpColor(c1, c2, constrain(q.v / vmax, 0, 1));
-    const age = i / t.trail.length;
-    c.setAlpha(200 * age); stroke(c); strokeWeight(1 + 3 * age);
-    line(p.x, p.y, q.x, q.y);
-  }
-}
-
-function drawTrain(t) {
-  const sc = SC();
-  const cw = carW, ch = cw * 0.46;
-  const armsUp = kmh(Math.abs(t.v)) > 70 || t.wasInv;
-  for (let k = 2; k >= 0; k--) {
-    const p = look(t.s - k * GAP);
-    push();
-    translate(p.x, p.y);
-    rotate(Math.atan2(p.ty, p.tx));
-    const cr = Math.cos(p.roll);
-    scale(1, Math.abs(cr) < 0.15 ? 0.15 * (cr < 0 ? -1 : 1) : cr);
-    const hy = -ch - 4 - cw * 0.1;
-    if (armsUp) {
-      stroke(sc.rider); strokeWeight(2);
-      for (const hx of [-cw * 0.18, cw * 0.18]) { line(hx - 3, hy, hx - 6, hy - cw * 0.32); line(hx + 3, hy, hx + 6, hy - cw * 0.32); }
+function drawKelp() {
+  noFill();
+  for (const k of kelp) {
+    stroke(30, 110, 80, 200); strokeWeight(k.w);
+    beginShape();
+    for (let s = 0; s <= 12; s++) {
+      const y = FLOOR + 50 - s / 12 * k.h, sway = Math.sin(t * 0.02 + k.ph + s * 0.4) * s * 2.2;
+      curveVertex(k.x + sway, y);
+      if (s === 0) curveVertex(k.x + sway, y);
     }
-    noStroke();
-    fill(sc.rider); circle(-cw * 0.18, hy, cw * 0.24); circle(cw * 0.18, hy, cw * 0.24);
-    fill(sc.car[(k + t.id) % 3]); rect(-cw / 2, -ch - 4, cw, ch, 5, k === 0 ? 9 : 5, 3, 3);
-    fill(255, 255, 255, 70); rect(-cw / 2 + 3, -ch - 1, cw - 6, 2.5, 2);
-    fill(25); circle(-cw * 0.3, -2, 5); circle(cw * 0.3, -2, 5);
-    pop();
+    endShape();
   }
 }
 
-function handleBox(i) {
-  const el = els[loopEl[i]];
-  const top = el && el.top ? el.top.y : trackY - 2 * R;
-  return { cx: loopXs[i] * W, top, cy: (top + trackY) / 2 };
+function drawSnow() { noStroke(); fill(200, 230, 255, 90); for (const s of snow) circle(s.x, s.y, s.s); }
+
+function drawFlow() {
+  stroke(170, 230, 255, 60); strokeWeight(1.5);
+  for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
+    const k = (y * FW + x) * 2, vx = flow[k], vy = flow[k + 1], m = Math.hypot(vx, vy);
+    if (m < 0.6) continue;
+    const px = (x + 0.5) * WW / FW, py = (y + 0.5) * WH / FH, L = Math.min(30, m * 3);
+    line(px, py, px + vx / m * L, py + vy / m * L);
+  }
 }
 
-function drawHandles() {
-  loopXs.forEach((f, i) => {
-    const b = handleBox(i);
-    const active = i === hoverLoop || i === dragging;
-    noStroke(); fill(hudCol(active ? 230 : 70));
-    textAlign(CENTER, CENTER); textSize(active ? 13 : 14);
-    text(active ? '⇆ drag' : '⇆', b.cx, b.cy);
-    if (active) {
-      noFill(); stroke(hudCol(160)); strokeWeight(1.5);
-      drawingContext.setLineDash([5, 5]);
-      const hw = Math.max(R * 1.2, 22);
-      rect(b.cx - hw, b.top - 12, hw * 2, trackY - b.top + 24, 10);
-      drawingContext.setLineDash([]);
-    }
-  });
+function drawFood() {
+  noStroke();
+  for (const c of food) { fill(255, 140, 120); ellipse(c.x, c.y, 7, 5); fill(255, 200, 180); circle(c.x + 2, c.y - 1, 2); }
+}
+
+function drawFish() {
+  // glow where panic is spreading
+  blendMode(ADD); noStroke();
+  for (const f of fish) if (f.panic > 0.25) { fill(90, 210, 255, 70 * f.panic); circle(f.x, f.y, 22 * f.s); }
+  blendMode(BLEND);
+  const ctx = drawingContext;
+  for (const f of fish) {
+    const a = Math.atan2(f.vy, f.vx), s = f.s, wag = Math.sin(f.ph) * 2.2 * s;
+    const p = f.panic, sh = f.shade;
+    const r = Math.min(255, 150 + sh + p * 90), g = Math.min(255, 186 + sh + p * 69), b = Math.min(255, 210 + sh * 0.5 + p * 45);
+    ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(a);
+    ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
+    ctx.beginPath(); ctx.ellipse(0, 0, 6.5 * s, 2.3 * s, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-5 * s, 0); ctx.lineTo(-10 * s, -3 * s + wag); ctx.lineTo(-10 * s, 3 * s + wag); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(20,50,80,0.55)';
+    ctx.beginPath(); ctx.ellipse(0.5 * s, -0.9 * s, 5 * s, 0.9 * s, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawShark(p, k) {
+  const a = Math.atan2(p.vy, p.vx) || 0;
+  push(); translate(p.x, p.y); rotate(a);
+  if (Math.abs(a) > HALF_PI) scale(1, -1);
+  const sw = Math.sin(t * 0.15) * 4;
+  noStroke();
+  fill(70, 96, 120);
+  beginShape(); vertex(46 * k, 0); vertex(20 * k, -11 * k); vertex(-30 * k, -8 * k); vertex(-42 * k, 0); vertex(-30 * k, 8 * k); vertex(20 * k, 10 * k); endShape(CLOSE);
+  triangle(-38 * k, 0, -60 * k, -18 * k + sw, -56 * k, 2 * k + sw);
+  triangle(-38 * k, 0, -56 * k, 2 * k + sw, -54 * k, 14 * k + sw);
+  triangle(4 * k, -10 * k, -12 * k, -26 * k, -14 * k, -8 * k);
+  triangle(6 * k, 8 * k, -8 * k, 20 * k, -6 * k, 6 * k);
+  fill(200, 215, 225); beginShape(); vertex(44 * k, 2 * k); vertex(20 * k, 9 * k); vertex(-26 * k, 6 * k); vertex(18 * k, 3 * k); endShape(CLOSE);
+  fill(10); circle(30 * k, -3 * k, 3.4 * k);
+  pop();
+}
+
+function drawRock(r) {
+  noStroke(); fill('#18384d'); ellipse(r.x, r.y, r.r * 2.3, r.r * 1.7);
+  fill('#22495f'); ellipse(r.x - r.r * 0.2, r.y - r.r * 0.25, r.r * 1.5, r.r * 1);
+  fill(255, 120, 140, 160); for (let i = 0; i < 5; i++) circle(r.x - r.r * 0.6 + i * r.r * 0.3, r.y - r.r * 0.55 + Math.sin(i * 2) * 6, 7);
+}
+
+function drawCursor() {
+  if (!inWorld()) { cursor(ARROW); return; }
+  if (P.tool === 'shark') { cursor('none'); drawShark(mshark, 0.8); }
+  else if (P.tool === 'food') { cursor('none'); noStroke(); fill(255, 140, 120); ellipse(wx(), wy(), 12, 8); }
+  else if (P.tool === 'current') { cursor('grab'); noFill(); stroke(190, 240, 255, 120); strokeWeight(1.5); circle(wx(), wy(), 110); }
+  else cursor(ARROW);
 }
 
 function drawHUD() {
-  const sc = SC();
-  const lead = trains.find(t => t.active) || trains[0];
-  let gf = 1;
-  if (lead && lead.active) {
-    const h = 10, mid = look(lead.s - GAP), pa = look(lead.s - GAP - h), pb = look(lead.s - GAP + h);
-    const dTx = (pb.tx - pa.tx) / (2 * h), dTy = (pb.ty - pa.ty) / (2 * h);
-    const ax = lead.a * mid.tx + lead.v * lead.v * dTx, ay = lead.a * mid.ty + lead.v * lead.v * dTy;
-    gf = Math.hypot(ax, ay - GRAV) / GRAV;
-  }
-  gSmooth = lerp(gSmooth, gf, 0.15);
-  const spd = lead && lead.active ? Math.round(kmh(Math.abs(lead.v))) : 0;
-  let tallest = 0;
-  for (const el of els) if (el.kind !== 'station' && el.top) tallest = Math.max(tallest, (trackY - el.top.y) / ppm);
-  const onTrack = trains.filter(t => t.active).length;
-
-  noStroke(); fill(sc.hud); textAlign(LEFT, TOP);
-  textStyle(BOLD); textSize(11); text('L O O P   L O G I C', 20, 18);
-  textSize(38); text(spd, 20, 34);
-  const sw = textWidth(String(spd));
-  textStyle(NORMAL); textSize(13); text('km/h', 26 + sw, 56);
-  text(`${gSmooth.toFixed(1)} G   ·   ${laps} laps   ·   ${invCount} inversions`, 20, 82);
-  text(`${onTrack}/${trains.length} trains   ·   tallest ${Math.round(tallest)} m   ·   track ${P.evolve ? 'evolving' : 'frozen'}`, 20, 100);
-  if (lead && lead.wasInv) { textStyle(BOLD); text('UPSIDE DOWN!', 20, 118); textStyle(NORMAL); }
-
+  let pan = 0; for (const f of fish) if (f.panic > 0.3) pan++;
+  const x = 18, y = 16, w = 250, h = 96;
+  noStroke(); fill(4, 22, 44, 210); rect(x, y, w, h, 12);
+  fill(255); textAlign(LEFT, TOP); textStyle(BOLD); textSize(11); text('B A I T   B A L L', x + 14, y + 12);
+  textSize(30); text(fish.length, x + 14, y + 28);
+  const sw = textWidth(String(fish.length));
+  textStyle(NORMAL); textSize(13); text('fish, no leader', x + 20 + sw, y + 42);
+  textSize(12); fill(200, 228, 245);
+  text(`Panicking right now: ${Math.round(pan / Math.max(1, fish.length) * 100)}%`, x + 14, y + 66);
+  if (P.ai) text(`Caught by the shark: ${caught}`, x + 14, y + 80);
   if (statusT > 0 && status) {
     const a = Math.min(1, statusT / 0.4);
-    fill(hudCol(255 * a));
-    textAlign(CENTER, TOP); textStyle(BOLD); textSize(Math.max(15, Math.min(22, W / 45)));
-    text(status, W / 2, 22);
+    textAlign(CENTER, TOP); textStyle(BOLD); textSize(Math.max(15, Math.min(22, width / 50)));
+    fill(0, 0, 0, 150 * a); text(status, width / 2 + 1, 23);
+    fill(255, 255, 255, 255 * a); text(status, width / 2, 22);
     textStyle(NORMAL);
   }
 }
+function setStatus(m, s) { status = m; statusT = s; }
 
-// ---------- interaction ----------
-function loopAt(x, y) {
-  for (let i = 0; i < loopXs.length; i++) {
-    const b = handleBox(i);
-    if (Math.abs(x - b.cx) < Math.max(R * 1.2, 22) && y > b.top - 20 && y < trackY + 20) return i;
-  }
-  return -1;
-}
-
-function mouseMoved() {
-  if (recording) return;
-  hoverLoop = loopAt(mouseX, mouseY);
-  cursor(hoverLoop >= 0 ? 'grab' : ARROW);
-}
-
+// ---------- UI ----------
 function mousePressed(e) {
-  if (recording || (e && e.target && e.target.tagName !== 'CANVAS')) return;
-  dragging = loopAt(mouseX, mouseY);
-  if (dragging >= 0) cursor('grabbing');
+  if (recording || (e && e.target && e.target.tagName !== 'CANVAS') || !inWorld()) return;
+  if (P.tool === 'food') for (let i = 0; i < 6; i++) food.push({ x: wx() + random(-20, 20), y: wy() + random(-10, 10), bites: 6, ph: random(TWO_PI) });
 }
-
-function mouseDragged() {
-  if (dragging < 0) return;
-  const [a, b] = loopRange();
-  let lo = a, hi = b;
-  if (dragging > 0) lo = Math.max(lo, loopXs[dragging - 1] * W + minSep);
-  if (dragging < loopXs.length - 1) hi = Math.min(hi, loopXs[dragging + 1] * W - minSep);
-  if (lo > hi) return;
-  loopXs[dragging] = constrain(mouseX, lo, hi) / W;
-  rebuild(true);
-  return false;
+function setTool(tl) {
+  P.tool = tl;
+  document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('on', b.dataset.tool === tl));
+  $('hint').textContent = HINTS[tl];
 }
-
-function mouseReleased() { if (dragging >= 0) { dragging = -1; cursor('grab'); } }
-
-function handleResize() {
-  layout();
-  const fr = loopXs.slice();
-  setLoopCount(P.wantLoops);
-  if (fr.length === loopXs.length) loopXs = fr; else resetEvolution();
-  buildBg();
-  rebuild(true);
-}
-
-function windowResized() {
-  if (recording) return;
-  resizeCanvas(windowWidth, windowHeight);
-  handleResize();
-}
-
-function newTrack() {
-  layout();
-  setLoopCount(P.wantLoops);
-  resetEvolution();
-  rebuild(false);
-  resetTrains();
-}
-
 function bindUI() {
-  $('launch').oninput = e => { P.launch = +e.target.value; $('vLaunch').textContent = P.launch + ' km/h'; };
-  $('trains').oninput = e => { P.trains = +e.target.value; $('vTrains').textContent = P.trains; setTrainCount(P.trains); };
-  $('loops').oninput = e => { P.wantLoops = +e.target.value; newTrack(); };
-  $('style').onchange = e => { P.style = e.target.value; newTrack(); };
-  $('evolve').onchange = e => { P.evolve = e.target.checked; };
-  $('scene').onchange = e => { P.scene = e.target.value; buildBg(); drawTrackLayer(); };
-  $('restart').onclick = () => { newTrack(); setStatus('Fresh track. Watch it sculpt itself…', 2.5); };
+  document.querySelectorAll('#tools button').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+  setTool('shark');
+  const sl = (id, key, lab, fmt) => { $(id).oninput = e => { P[key] = +e.target.value; $(lab).textContent = fmt(P[key]); }; };
+  sl('sep', 'sep', 'vSep', v => v.toFixed(1));
+  sl('ali', 'ali', 'vAli', v => v.toFixed(1));
+  sl('coh', 'coh', 'vCoh', v => v.toFixed(1));
+  sl('pan', 'pan', 'vPan', v => v.toFixed(2));
+  $('n').oninput = e => { $('vN').textContent = e.target.value; setCount(+e.target.value); };
+  $('ai').onchange = e => { P.ai = e.target.checked; };
+  $('reset').onclick = reset;
   $('rec').onclick = record;
+  $('panel').onmouseenter = () => { overPanel = true; };
+  $('panel').onmouseleave = () => { overPanel = false; };
   $('toggle').onclick = () => {
     const p = $('panel'); p.classList.toggle('min');
     $('toggle').textContent = p.classList.contains('min') ? '+' : '–';
@@ -717,21 +452,11 @@ async function record() {
   if (recording) return;
   recording = true;
   const b = $('rec'); b.disabled = true; b.textContent = 'Recording…';
-  hoverLoop = -1; dragging = -1;
   try {
-    pixelDensity(1);
-    resizeCanvas(800, 450);
-    handleResize();
-    FIXDT = 1 / 30; frameRate(30);
-    await saveGif('my-rollercoaster', 10, { units: 'seconds', delay: 0 });
-  } catch (err) {
-    console.error(err);
-    setStatus('GIF recording failed: ' + err.message, 4);
-  }
-  FIXDT = 1 / 60; frameRate(60);
-  pixelDensity(baseDensity);
-  resizeCanvas(windowWidth, windowHeight);
-  handleResize();
+    pixelDensity(1); resizeCanvas(800, 450); view(); frameRate(30);
+    await saveGif('my-bait-ball', 10, { units: 'seconds', delay: 0 });
+  } catch (err) { console.error(err); setStatus('GIF recording failed: ' + err.message, 4); }
+  frameRate(60); pixelDensity(baseDensity); resizeCanvas(windowWidth, windowHeight); view();
   recording = false; b.disabled = false; b.textContent = '● Record 10s GIF';
 }
 </script>
