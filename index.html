@@ -8,17 +8,20 @@
 <style>
   html,body{margin:0;height:100%;background:#05070f;overflow:hidden;font-family:system-ui,-apple-system,Helvetica,sans-serif;color:#eef2ff}
   canvas{display:block}
-  #panel{position:fixed;left:16px;bottom:16px;width:250px;background:rgba(10,14,30,.8);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:12px 14px;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+  #panel{position:fixed;left:16px;bottom:16px;width:260px;max-height:calc(100vh - 32px);overflow:auto;background:rgba(10,14,30,.82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:12px 14px;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.35);box-sizing:border-box}
   #panel .head{display:flex;justify-content:space-between;align-items:center}
   #panel .head strong{letter-spacing:.12em;font-size:12px}
   #panel.min #body{display:none}
   #panel label{display:flex;justify-content:space-between;margin-top:10px;margin-bottom:2px;color:#c9d2f2}
   #panel label span{color:#fff;font-variant-numeric:tabular-nums}
+  #panel label.check{justify-content:flex-start;gap:8px;align-items:center;cursor:pointer;color:#fff}
   #panel input[type=range]{width:100%;accent-color:#ff5d8f}
+  #panel input[type=checkbox]{accent-color:#ff5d8f;width:15px;height:15px;margin:0}
   #panel select{width:100%;padding:5px;border-radius:7px;border:1px solid rgba(255,255,255,.2);background:#141a33;color:#fff;font:inherit}
   .hint{margin:10px 0 0;color:#9aa6cf;font-size:12px}
   details{margin-top:8px;color:#c9d2f2;font-size:12px;line-height:1.45}
   summary{cursor:pointer;color:#fff}
+  details b{color:#fff}
   .btns{display:flex;gap:8px;margin-top:12px}
   button{font:inherit;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#1d2547;color:#fff;padding:7px 10px;cursor:pointer}
   button:hover{background:#28325e}
@@ -33,6 +36,8 @@
   <div id="body">
     <label>Launch speed <span id="vLaunch">90 km/h</span></label>
     <input id="launch" type="range" min="20" max="160" value="90">
+    <label>Trains <span id="vTrains">4</span></label>
+    <input id="trains" type="range" min="1" max="8" value="4">
     <label>Loops &amp; rolls <span id="vLoops">4</span></label>
     <input id="loops" type="range" min="0" max="12" value="4">
     <label>Inversion style</label>
@@ -42,43 +47,43 @@
       <option value="cork">Corkscrews only</option>
       <option value="double">Double loops only</option>
     </select>
-    <label>Hill height <span id="vHills">50%</span></label>
-    <input id="hills" type="range" min="0" max="100" value="50">
+    <label class="check"><input id="evolve" type="checkbox" checked> Let the track evolve</label>
     <label>Location</label>
     <select id="scene">
       <option value="night">City at night</option>
       <option value="sunset">Mountain sunset</option>
       <option value="beach">Beach boardwalk</option>
     </select>
-    <p class="hint">Drag any loop to move it along the track.</p>
-    <details>
+    <p class="hint">Drag any loop to move it. Change the speed and watch the track re-sculpt itself.</p>
+    <details open>
       <summary>The rules</summary>
-      1. Gravity pulls the train along whatever slope is under it.<br>
-      2. Friction and air slowly steal speed.<br>
-      3. The station boosts the train to your launch speed.<br>
-      Nothing else is scripted: clearing loops, rolling back and getting stranded all emerge from those three rules.
+      <b>Each train:</b> gravity pulls it along the slope · friction slows it · it brakes if it gets too close to the train ahead. The station launches it.<br>
+      <b>Each hill &amp; loop:</b> grows a little when a train makes it over, shrinks when a train fails.<br>
+      Nobody designs the final ride. It shapes itself to the edge of what the launch speed can handle.
     </details>
-    <div class="btns"><button id="restart">Restart</button><button id="rec">● Record 10s GIF</button></div>
+    <div class="btns"><button id="restart">Reset track</button><button id="rec">● Record 10s GIF</button></div>
   </div>
 </div>
 
 <script>
 // ---------- state ----------
-const P = { launch: 90, loops: 4, hills: 0.5, scene: 'night', style: 'mixed' };
-let W, H, ppm, GRAV, groundY, trackY, R, D, stationEnd, minSep, carW, GAP;
-let loopXs = [];             // loop centres as fractions of width
-let pts = [], L = 1;         // track polyline with arc length
-let bgLayer, trackLayer;
-let s = 0, v = 0, lastA = 0; // front-car arc position (px) and speed (px/s)
-let trail = [];
-let laps = 0, reversals = 0, lastDir = 0;
-let status = '', statusT = 0, strandT = null;
+const P = { launch: 90, trains: 4, loops: 4, wantLoops: 4, scene: 'night', style: 'mixed', evolve: true };
+let W, H, ppm, GRAV, groundY, trackY, R, D, stationEnd, minSep, carW, GAP, TLEN;
+let loopXs = [];        // inversion centres, as fractions of width (kept in left-to-right order)
+let loopP = [];         // evolving loop size (vertical radius, metres), one per inversion
+let hillP = [];         // evolving hill height (metres), one per gap between inversions
+let pts = [], els = [], loopEl = [], L = 1;
+let bgLayer = null, trackLayer = null;
+let trains = [];
+let laps = 0, invCount = 0;
+let status = '', statusT = 0;
 let gSmooth = 1;
-let invCount = 0, wasInv = false;
 let dragging = -1, hoverLoop = -1;
 let recording = false, baseDensity = 1;
 let FIXDT = 1 / 60;
 const SUB = 10;
+let dirty = false, lastBuild = 0;
+let flashes = {};
 
 const SCENES = {
   night:  { sky:['#060a1c','#1d2a5c'], far:'#141c40', near:'#0a1029', ground:'#05070f',
@@ -94,6 +99,7 @@ const SCENES = {
 const SC = () => SCENES[P.scene];
 const kmh = px => px / ppm * 3.6;
 const $ = id => document.getElementById(id);
+const mod = x => ((x % L) + L) % L;
 
 // ---------- setup ----------
 function setup() {
@@ -103,11 +109,13 @@ function setup() {
   frameRate(60);
   textFont('system-ui, -apple-system, Helvetica, sans-serif');
   layout();
-  setLoopCount(P.loops);
+  setLoopCount(P.wantLoops);
+  resetEvolution();
   rebuild(false);
   buildBg();
-  resetTrain();
+  resetTrains();
   bindUI();
+  setStatus('Watch the track sculpt itself…', 3);
 }
 
 function layout() {
@@ -117,19 +125,18 @@ function layout() {
   groundY = H * 0.88;
   trackY = H * 0.72;
   stationEnd = Math.max(W * 0.15, 110);
-  // shrink the elements so the chosen number of them fits on screen
-  const fitR = (W - stationEnd - W * 0.04) / (Math.max(1, P.loops) * 3.7 + 1);
+  const fitR = (W - stationEnd - W * 0.04) / (Math.max(1, P.wantLoops) * 3.7 + 1);
   R = Math.max(14, Math.min(H * 0.13, W * 0.08, fitR));
   D = 1.2 * R;
   minSep = 3.6 * R;
   carW = Math.max(14, Math.min(R * 0.36, H * 0.045));
   GAP = carW * 1.15;
+  TLEN = 2 * GAP + carW;
 }
 
 const TYPES = { mixed: ['loop', 'cork', 'loop', 'double'], loop: ['loop'], cork: ['cork'], double: ['double'] };
 function typeFor(i) { const t = TYPES[P.style]; return t[i % t.length]; }
 function footprint(type) { return type === 'double' ? 2 * D : type === 'cork' ? 2.4 * R : D; }
-
 function loopRange() { return [stationEnd + 2 * R, W - 2.2 * R]; }
 function maxLoops() { const [a, b] = loopRange(); return Math.max(0, Math.floor((b - a) / minSep)); }
 
@@ -141,54 +148,68 @@ function setLoopCount(n) {
   const [a, b] = loopRange();
   loopXs = [];
   for (let i = 0; i < n; i++) loopXs.push((a + (i + 0.5) * (b - a) / n) / W);
-  if ($('loops')) {
-    $('loops').value = n;
-    $('vLoops').textContent = clamped ? n + ' (max for this screen)' : n;
-  }
+  if ($('loops')) $('vLoops').textContent = clamped ? n + ' (max here)' : n;
+}
+
+function resetEvolution() {
+  loopP = loopXs.map(() => R / ppm);
+  hillP = new Array(loopXs.length + 1).fill(3);
+  flashes = {};
 }
 
 // ---------- track ----------
 function buildTrack() {
-  pts = [];
-  const add = (x, y, kind, roll = 0) => pts.push({ x, y, kind, roll });
+  pts = []; els = []; loopEl = [];
   const step = 3;
-  for (let x = 0; x < stationEnd; x += step) add(x, trackY, 'station');
+  const begin = (kind, param) => { els.push({ kind, param, s0: 0, s1: 0, top: null, maxM: Infinity }); return els.length - 1; };
+  const add = (x, y, e, roll = 0) => pts.push({ x, y, e, roll });
+
+  const st = begin('station', -1);
+  for (let x = 0; x < stationEnd; x += step) add(x, trackY, st);
   let cursor = stationEnd;
-  const hill = (a, b) => {
-    const w = b - a; if (w <= 0) return;
-    const h = P.hills * Math.min(H * 0.32, w * 0.45);
+
+  const hill = (a, b, j) => {
+    const w = b - a; if (w < step * 2) return;
+    const e = begin('hill', j);
+    const maxPx = Math.min(H * 0.6, w * 1.4);
+    els[e].maxM = maxPx / ppm;
+    const h = Math.min(hillP[j] * ppm, maxPx);
     for (let x = a; x < b; x += step) {
       const u = (x - a) / w;
-      add(x, trackY - h * Math.sin(Math.PI * u) ** 2, 'hill');
+      add(x, trackY - h * Math.sin(Math.PI * u) ** 2, e);
     }
   };
-  const addLoop = x0 => {
+  const addLoop = (x0, ry, e) => {
     const N = 240;
-    for (let i = 0; i < N; i++) {
-      const t = i / N;
-      add(x0 + D * t + R * Math.sin(2 * Math.PI * t), trackY - R * (1 - Math.cos(2 * Math.PI * t)), 'loop');
+    for (let k = 0; k < N; k++) {
+      const t = k / N;
+      add(x0 + D * t + R * Math.sin(2 * Math.PI * t), trackY - ry * (1 - Math.cos(2 * Math.PI * t)), e);
     }
   };
-  const addCork = x0 => {
-    // a corkscrew seen from the side: the track barely rises while the train rolls a full 360°
+  const addCork = (x0, ry, e) => {
+    // a corkscrew seen from the side: the train rolls a full 360° around the rail
     const N = 200, len = 2.4 * R;
-    for (let i = 0; i < N; i++) {
-      const t = i / N;
-      add(x0 + len * t, trackY - 0.45 * R * (1 - Math.cos(2 * Math.PI * t)), 'cork', 2 * Math.PI * t);
+    for (let k = 0; k < N; k++) {
+      const t = k / N;
+      add(x0 + len * t, trackY - 0.45 * ry * (1 - Math.cos(2 * Math.PI * t)), e, 2 * Math.PI * t);
     }
   };
-  loopXs.map((f, i) => ({ cx: f * W, type: typeFor(i) }))
-    .sort((a, b) => a.cx - b.cx)
-    .forEach(({ cx, type }) => {
-      const fw = footprint(type), x0 = cx - fw / 2;
-      hill(cursor, x0);
-      if (type === 'loop') addLoop(x0);
-      else if (type === 'double') { addLoop(x0); addLoop(x0 + D); }
-      else addCork(x0);
-      cursor = x0 + fw;
-    });
-  hill(cursor, W);
-  add(W, trackY, 'hill');
+
+  const loopMaxM = H * 0.31 / ppm, loopMinM = R * 0.5 / ppm;
+  loopXs.forEach((f, i) => {
+    const type = typeFor(i), fw = footprint(type), x0 = f * W - fw / 2;
+    hill(cursor, x0, i);
+    const e = begin(type, i);
+    els[e].maxM = loopMaxM; els[e].minM = loopMinM;
+    loopEl[i] = e;
+    const ry = Math.max(R * 0.5, Math.min(loopP[i] * ppm, H * 0.31));
+    if (type === 'loop') addLoop(x0, ry, e);
+    else if (type === 'double') { addLoop(x0, ry, e); addLoop(x0 + D, ry, e); }
+    else addCork(x0, ry, e);
+    cursor = x0 + fw;
+  });
+  hill(cursor, W, loopXs.length);
+  add(W, trackY, els.length - 1);
 
   pts[0].s = 0;
   for (let i = 1; i < pts.length; i++) pts[i].s = pts[i - 1].s + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
@@ -199,43 +220,54 @@ function buildTrack() {
     pts[i].tx = dx / len; pts[i].ty = dy / len;
     pts[i].nx = -pts[i].ty; pts[i].ny = pts[i].tx;
   }
+  for (const el of els) { el.s0 = Infinity; el.s1 = -Infinity; }
+  for (const p of pts) {
+    const el = els[p.e];
+    el.s0 = Math.min(el.s0, p.s); el.s1 = Math.max(el.s1, p.s);
+    if (!el.top || p.y < el.top.y) el.top = { x: p.x, y: p.y };
+  }
 }
 
 function look(q) {
-  q = ((q % L) + L) % L;
+  q = mod(q);
   let lo = 0, hi = pts.length - 1;
   while (hi - lo > 1) { const m = (lo + hi) >> 1; if (pts[m].s <= q) lo = m; else hi = m; }
   const a = pts[lo], b = pts[hi];
   const u = (q - a.s) / ((b.s - a.s) || 1);
   const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
-  return { x: a.x + dx * u, y: a.y + dy * u, tx: dx / len, ty: dy / len, kind: a.kind, roll: a.roll + (b.roll - a.roll) * u };
+  return { x: a.x + dx * u, y: a.y + dy * u, tx: dx / len, ty: dy / len, e: a.e, kind: els[a.e].kind, roll: a.roll + (b.roll - a.roll) * u };
 }
+
+// remember each train as "element + fraction through it" so it stays put while the track reshapes
+function toRel(s) { const p = look(s), el = els[p.e]; return { e: p.e, f: (mod(s) - el.s0) / Math.max(1, el.s1 - el.s0) }; }
+function fromRel(r) { const el = els[Math.min(r.e, els.length - 1)]; return mod(el.s0 + r.f * (el.s1 - el.s0)); }
 
 function rebuild(keep = true) {
-  const f = keep && L > 0 ? s / L : 0;
+  const saved = keep && els.length ? trains.map(t => toRel(t.s)) : null;
   buildTrack();
-  buildTrackLayer();
-  if (keep) s = f * L;
-  trail = [];
+  drawTrackLayer();
+  if (saved) trains.forEach((t, i) => { t.s = fromRel(saved[i]); });
 }
 
-function buildTrackLayer() {
+function freshLayer(old) {
+  if (old && old.width === W && old.height === H) { old.clear(); return old; }
+  if (old) old.remove();
+  return createGraphics(W, H);
+}
+
+function drawTrackLayer() {
   const sc = SC();
-  trackLayer = createGraphics(W, H);
+  trackLayer = freshLayer(trackLayer);
   const g = trackLayer;
-  g.clear();
-  // supports
   g.stroke(sc.support); g.strokeWeight(2);
   for (let i = 0; i < pts.length; i += 10) {
-    const p = pts[i];
-    if (p.kind === 'loop') continue;
+    const p = pts[i], k = els[p.e].kind;
+    if (k !== 'hill' && k !== 'station') continue;
     g.line(p.x, p.y + 4, p.x, groundY);
   }
-  // loop towers
   loopXs.forEach((f, i) => {
     if (typeFor(i) === 'cork') return;
-    const cx = f * W;
-    g.strokeWeight(4); g.line(cx, trackY - R * 0.2, cx, groundY);
+    g.strokeWeight(4); g.line(f * W, trackY - R * 0.2, f * W, groundY);
   });
   // rails (they pinch together where a corkscrew twists side-on)
   const path = off => { g.beginShape(); for (const p of pts) { const c = Math.cos(p.roll) * off; g.vertex(p.x + p.nx * c, p.y + p.ny * c); } g.endShape(); };
@@ -247,11 +279,11 @@ function buildTrackLayer() {
     const p = pts[i], c = Math.cos(p.roll) * 3.4;
     g.line(p.x + p.nx * c, p.y + p.ny * c, p.x - p.nx * c, p.y - p.ny * c);
   }
-  // corkscrew helix spine so the twist reads clearly
+  // corkscrew helix spine
   g.stroke(sc.rail); g.strokeWeight(1.5); g.noFill();
   let open = false;
   for (const p of pts) {
-    if (p.kind === 'cork') {
+    if (els[p.e].kind === 'cork') {
       if (!open) { g.beginShape(); open = true; }
       const c = Math.sin(p.roll) * R * 0.3;
       g.vertex(p.x + p.nx * c, p.y + p.ny * c);
@@ -268,13 +300,12 @@ function buildTrackLayer() {
 // ---------- scenery ----------
 function buildBg() {
   const sc = SC();
-  bgLayer = createGraphics(W, H);
+  bgLayer = freshLayer(bgLayer);
   const g = bgLayer;
   randomSeed(3); noiseSeed(5);
   const top = color(sc.sky[0]), bot = color(sc.sky[1]);
   for (let y = 0; y < groundY; y++) { g.stroke(lerpColor(top, bot, y / groundY)); g.line(0, y, W, y); }
   g.noStroke();
-
   if (P.scene === 'night') {
     for (let i = 0; i < W * H / 3500; i++) { g.fill(255, random(70, 220)); g.circle(random(W), random(groundY * 0.65), random(0.8, 2.2)); }
     g.fill(235, 238, 255); g.circle(W * 0.84, H * 0.15, H * 0.08);
@@ -319,109 +350,223 @@ function mountains(g, col, baseY, freq, amp, off) {
   g.vertex(W, groundY); g.endShape(CLOSE);
 }
 
-// ---------- physics: the three rules ----------
-function resetTrain() {
-  s = 2 * GAP + carW; v = 0; laps = 0; reversals = 0; lastDir = 0; strandT = null; trail = [];
-  invCount = 0; wasInv = false;
-  setStatus('Launch!', 1.2);
+// ---------- trains ----------
+function makeTrain(i) {
+  return { id: i, s: 0, v: 0, a: 0, lastDir: 0, reversals: 0, active: false, wait: 0,
+           tailE: 0, attempting: true, blocked: false, inStation: false, wasInv: false, trail: [] };
+}
+function resetTrains() {
+  trains = [];
+  for (let i = 0; i < P.trains; i++) trains.push(makeTrain(i));
+  laps = 0; invCount = 0;
+}
+function setTrainCount(n) {
+  while (trains.length < n) trains.push(makeTrain(trains.length));
+  while (trains.length > n) trains.pop();
+}
+const SPAWN = () => TLEN + 4;
+function stationClear() {
+  const s0 = SPAWN();
+  for (const t of trains) {
+    if (!t.active) continue;
+    const ahead = mod(t.s - s0) - TLEN, behind = mod(s0 - t.s) - TLEN;
+    if (Math.min(ahead, behind) < carW * 3) return false;
+  }
+  return true;
+}
+function releaseTrains(dt) {
+  for (const t of trains) {
+    if (t.active) continue;
+    t.wait -= dt;
+    if (t.wait <= 0 && stationClear()) {
+      Object.assign(t, { active: true, s: SPAWN(), v: 0, lastDir: 0, reversals: 0, tailE: 0, attempting: true, trail: [] });
+      return;
+    }
+  }
 }
 
+// ---------- the rules ----------
 function physics() {
   const dt = FIXDT / SUB;
   const tgt = P.launch / 3.6 * ppm;
   for (let k = 0; k < SUB; k++) {
-    const c0 = look(s), c1 = look(s - GAP), c2 = look(s - 2 * GAP);
-    const inStation = c1.kind === 'station';
-    let a;
-    if (inStation) {
-      // Rule 3: the station pushes the train toward the launch speed
-      a = (tgt - v) * 9;
-    } else {
-      // Rule 1: gravity along the slope (averaged over the whole train)
-      a = GRAV * (c0.ty + c1.ty + c2.ty) / 3;
-      // Rule 2: rolling friction + air drag
-      if (Math.abs(v) > 0.01 * ppm) a -= Math.sign(v) * 0.012 * GRAV;
-      a -= 0.0008 / ppm * v * Math.abs(v);
-    }
-    v += a * dt;
-    lastA = a;
-    const ps = s;
-    s = ((s + v * dt) % L + L) % L;
-    if (v > 0 && ps > L * 0.8 && s < L * 0.2) { laps++; reversals = 0; }
+    const act = trains.filter(t => t.active);
 
-    const dir = Math.sign(v);
-    if (dir !== 0) {
-      if (lastDir > 0 && dir < 0 && !inStation) onRollback(c1.kind);
-      lastDir = dir;
+    for (const t of act) {
+      const c0 = look(t.s), c1 = look(t.s - GAP), c2 = look(t.s - 2 * GAP);
+      t.inStation = c1.kind === 'station';
+      let a;
+      if (t.inStation) {
+        a = (tgt - t.v) * 9;                                   // the station launches the train
+      } else {
+        a = GRAV * (c0.ty + c1.ty + c2.ty) / 3;                // rule 1: gravity along the slope
+        if (Math.abs(t.v) > 0.01 * ppm) a -= Math.sign(t.v) * 0.012 * GRAV;   // rule 2: friction
+        a -= 0.0008 / ppm * t.v * Math.abs(t.v);               //          + air drag
+      }
+      t.v += a * dt; t.a = a; t.blocked = false;
     }
-    if (inStation) reversals = 0;
+
+    // rule 3: brake if too close to the train ahead (bumping trains share their speed)
+    if (act.length > 1) {
+      act.sort((a, b) => a.s - b.s);
+      for (let i = 0; i < act.length; i++) {
+        const me = act[i], ah = act[(i + 1) % act.length];
+        const gap = mod(ah.s - me.s) - TLEN;
+        if (gap < carW * 2 && me.v > ah.v) {
+          me.blocked = true;
+          if (gap < carW * 0.25) {
+            const m = (me.v + ah.v) / 2; me.v = m; ah.v = m; ah.blocked = true;
+            if (gap < 0) me.s = mod(ah.s - TLEN);
+          } else me.v -= (me.v - ah.v) * 0.25;
+        }
+      }
+    }
+
+    for (const t of act) {
+      const ps = t.s;
+      t.s = mod(t.s + t.v * dt);
+      if (t.v > 0 && ps > L * 0.8 && t.s < L * 0.2) laps++;
+
+      // the whole train made it past an element -> that element grows
+      const te = look(t.s - 2 * GAP).e;
+      if (te !== t.tailE) {
+        if (t.v > 0 && t.attempting) {
+          if (te > t.tailE) for (let e = t.tailE; e < te; e++) cleared(e, t);
+          else if (te === 0 && t.tailE === els.length - 1) cleared(t.tailE, t);
+        }
+        t.tailE = te;
+      }
+      if (t.inStation) { t.attempting = true; t.reversals = 0; }
+
+      const dir = Math.sign(t.v);
+      if (dir !== 0) {
+        if (t.lastDir > 0 && dir < 0 && !t.inStation) rolledBack(t);
+        t.lastDir = dir;
+      }
+      if (!t.active) break;
+    }
   }
 }
 
-function onRollback(kind) {
-  reversals++;
-  if (reversals >= 3 && strandT === null) {
-    setStatus('Valleyed! The train is stranded.', 2.6);
-    strandT = 2.4;
-  } else if (strandT === null) {
-    setStatus(kind === 'loop' ? 'Too slow for the loop! Rolling back…' : kind === 'cork' ? 'Stalled in the corkscrew! Rolling back…' : "Couldn't crest the hill! Rolling back…", 2);
+// rule 4: the track adapts
+function cleared(e, t) {
+  if (!els[e] || els[e].kind === 'station') return;
+  t.reversals = 0;
+  if (!P.evolve) return;
+  const el = els[e];
+  if (el.kind === 'hill') hillP[el.param] = Math.min(el.maxM, hillP[el.param] + 0.5);
+  else loopP[el.param] = Math.min(el.maxM, loopP[el.param] + 0.25);
+  flashes[e] = { t: 0.7, good: true };
+  dirty = true;
+}
+
+function failed(e) {
+  const el = els[e];
+  if (!el || el.kind === 'station') return;
+  const what = el.kind === 'hill' ? "Couldn't crest the hill" : el.kind === 'cork' ? 'Stalled in the corkscrew' : 'Too slow for the loop';
+  setStatus(what + (P.evolve ? ', so it shrinks' : '! Rolling back…'), 1.8);
+  if (!P.evolve) return;
+  if (el.kind === 'hill') hillP[el.param] = Math.max(0.3, hillP[el.param] - Math.max(1, hillP[el.param] * 0.12));
+  else loopP[el.param] = Math.max(el.minM, loopP[el.param] - Math.max(0.5, loopP[el.param] * 0.12));
+  flashes[e] = { t: 0.9, good: false };
+  dirty = true;
+}
+
+function rolledBack(t) {
+  t.reversals++;
+  if (!t.blocked && t.attempting) {
+    const e = look(t.s).e;
+    if (els[e].kind !== 'station') { failed(e); t.attempting = false; }
+  }
+  if (t.reversals >= 4) {
+    t.active = false; t.wait = 1.2;
+    setStatus('A train got stranded and was towed back', 2);
   }
 }
 
-function setStatus(msg, t) { status = msg; statusT = t; }
+function setStatus(msg, tm) { status = msg; statusT = tm; }
 
 // ---------- drawing ----------
 function draw() {
+  if (dirty && millis() - lastBuild > 120) { rebuild(true); dirty = false; lastBuild = millis(); }
+  releaseTrains(FIXDT);
   physics();
+
   image(bgLayer, 0, 0, W, H);
   image(trackLayer, 0, 0, W, H);
 
-  const front = look(s);
-  // count inversions: the moment the front car's "up" points at the ground
-  const upness = front.tx * Math.cos(front.roll);
-  if (!wasInv && upness < -0.3) { wasInv = true; invCount++; }
-  else if (wasInv && upness > 0.3) wasInv = false;
-  const last = trail[trail.length - 1];
-  trail.push({ x: front.x, y: front.y, v: Math.abs(v), brk: !last || Math.hypot(front.x - last.x, front.y - last.y) > 60 });
-  if (trail.length > 90) trail.shift();
+  for (const t of trains) {
+    if (!t.active) { t.trail = []; continue; }
+    const f = look(t.s);
+    const up = f.tx * Math.cos(f.roll);
+    if (!t.wasInv && up < -0.3) { t.wasInv = true; invCount++; }
+    else if (t.wasInv && up > 0.3) t.wasInv = false;
+    const last = t.trail[t.trail.length - 1];
+    t.trail.push({ x: f.x, y: f.y, v: Math.abs(t.v), brk: !last || Math.hypot(f.x - last.x, f.y - last.y) > 60 });
+    if (t.trail.length > 50) t.trail.shift();
+  }
 
-  drawTrail();
-  drawTrain();
+  drawLabels();
+  drawFlashes();
+  for (const t of trains) if (t.active) drawTrail(t);
+  for (const t of trains) if (t.active) drawTrain(t);
   if (!recording) drawHandles();
   drawHUD();
-
   statusT -= FIXDT;
-  if (strandT !== null) {
-    strandT -= FIXDT;
-    if (strandT < 0) { resetTrain(); setStatus('Towed back to the station', 1.6); }
+}
+
+function hudCol(a) { const c = color(SC().hud); c.setAlpha(a); return c; }
+
+function drawLabels() {
+  noStroke(); fill(hudCol(140)); textAlign(CENTER, BOTTOM); textStyle(NORMAL); textSize(10);
+  for (const el of els) {
+    if (el.kind === 'station' || !el.top) continue;
+    const m = (trackY - el.top.y) / ppm;
+    if (m < 0.8) continue;
+    text(Math.round(m) + ' m', el.top.x, el.top.y - 10);
   }
 }
 
-function drawTrail() {
+function drawFlashes() {
+  for (const k in flashes) {
+    const f = flashes[k], el = els[k];
+    f.t -= FIXDT;
+    if (f.t <= 0 || !el || !el.top) { delete flashes[k]; continue; }
+    const a = f.t / (f.good ? 0.7 : 0.9);
+    const c = color(f.good ? '#7CFFB2' : '#ff5d5d');
+    c.setAlpha(220 * a);
+    noFill(); stroke(c); strokeWeight(2);
+    circle(el.top.x, el.top.y, 8 + (1 - a) * 26);
+    noStroke(); fill(c); textAlign(CENTER, BOTTOM); textStyle(BOLD); textSize(13);
+    text(f.good ? '+' : '−', el.top.x, el.top.y - 22 - (1 - a) * 8);
+    textStyle(NORMAL);
+  }
+}
+
+function drawTrail(t) {
   const sc = SC();
   const c1 = color(sc.trail[0]), c2 = color(sc.trail[1]);
   const vmax = 160 / 3.6 * ppm;
   noFill(); strokeCap(ROUND);
-  for (let i = 1; i < trail.length; i++) {
-    const p = trail[i - 1], q = trail[i];
+  for (let i = 1; i < t.trail.length; i++) {
+    const p = t.trail[i - 1], q = t.trail[i];
     if (q.brk) continue;
     const c = lerpColor(c1, c2, constrain(q.v / vmax, 0, 1));
-    const age = i / trail.length;
-    c.setAlpha(230 * age); stroke(c); strokeWeight(1 + 4 * age);
+    const age = i / t.trail.length;
+    c.setAlpha(200 * age); stroke(c); strokeWeight(1 + 3 * age);
     line(p.x, p.y, q.x, q.y);
   }
 }
 
-function drawTrain() {
+function drawTrain(t) {
   const sc = SC();
   const cw = carW, ch = cw * 0.46;
-  const armsUp = kmh(Math.abs(v)) > 70 || wasInv;
+  const armsUp = kmh(Math.abs(t.v)) > 70 || t.wasInv;
   for (let k = 2; k >= 0; k--) {
-    const p = look(s - k * GAP);
+    const p = look(t.s - k * GAP);
     push();
     translate(p.x, p.y);
     rotate(Math.atan2(p.ty, p.tx));
-    // barrel-roll: squash and flip the car as it rolls around the rail
     const cr = Math.cos(p.roll);
     scale(1, Math.abs(cr) < 0.15 ? 0.15 * (cr < 0 ? -1 : 1) : cr);
     const hy = -ch - 4 - cw * 0.1;
@@ -431,52 +576,64 @@ function drawTrain() {
     }
     noStroke();
     fill(sc.rider); circle(-cw * 0.18, hy, cw * 0.24); circle(cw * 0.18, hy, cw * 0.24);
-    fill(sc.car[k]); rect(-cw / 2, -ch - 4, cw, ch, 5, k === 0 ? 9 : 5, 3, 3);
+    fill(sc.car[(k + t.id) % 3]); rect(-cw / 2, -ch - 4, cw, ch, 5, k === 0 ? 9 : 5, 3, 3);
     fill(255, 255, 255, 70); rect(-cw / 2 + 3, -ch - 1, cw - 6, 2.5, 2);
     fill(25); circle(-cw * 0.3, -2, 5); circle(cw * 0.3, -2, 5);
     pop();
   }
 }
 
-function handleCenter(i) { return [loopXs[i] * W, typeFor(i) === 'cork' ? trackY - 0.45 * R : trackY - R]; }
+function handleBox(i) {
+  const el = els[loopEl[i]];
+  const top = el && el.top ? el.top.y : trackY - 2 * R;
+  return { cx: loopXs[i] * W, top, cy: (top + trackY) / 2 };
+}
 
 function drawHandles() {
-  const sc = SC();
   loopXs.forEach((f, i) => {
-    const [cx, cy] = handleCenter(i);
+    const b = handleBox(i);
     const active = i === hoverLoop || i === dragging;
-    noFill();
-    stroke(red(color(sc.hud)), green(color(sc.hud)), blue(color(sc.hud)), active ? 200 : 50);
-    strokeWeight(1.5);
-    drawingContext.setLineDash([5, 5]);
-    circle(cx, cy, Math.max(R * 2.5, 40));
-    drawingContext.setLineDash([]);
-    noStroke(); fill(red(color(sc.hud)), green(color(sc.hud)), blue(color(sc.hud)), active ? 230 : 80);
+    noStroke(); fill(hudCol(active ? 230 : 70));
     textAlign(CENTER, CENTER); textSize(active ? 13 : 14);
-    text(active ? '⇆ drag' : '⇆', cx, cy);
+    text(active ? '⇆ drag' : '⇆', b.cx, b.cy);
+    if (active) {
+      noFill(); stroke(hudCol(160)); strokeWeight(1.5);
+      drawingContext.setLineDash([5, 5]);
+      const hw = Math.max(R * 1.2, 22);
+      rect(b.cx - hw, b.top - 12, hw * 2, trackY - b.top + 24, 10);
+      drawingContext.setLineDash([]);
+    }
   });
 }
 
 function drawHUD() {
   const sc = SC();
-  // felt G-force on the middle car
-  const h = 10, mid = look(s - GAP), pa = look(s - GAP - h), pb = look(s - GAP + h);
-  const dTx = (pb.tx - pa.tx) / (2 * h), dTy = (pb.ty - pa.ty) / (2 * h);
-  const ax = lastA * mid.tx + v * v * dTx, ay = lastA * mid.ty + v * v * dTy;
-  const gf = Math.hypot(ax, ay - GRAV) / GRAV;
+  const lead = trains.find(t => t.active) || trains[0];
+  let gf = 1;
+  if (lead && lead.active) {
+    const h = 10, mid = look(lead.s - GAP), pa = look(lead.s - GAP - h), pb = look(lead.s - GAP + h);
+    const dTx = (pb.tx - pa.tx) / (2 * h), dTy = (pb.ty - pa.ty) / (2 * h);
+    const ax = lead.a * mid.tx + lead.v * lead.v * dTx, ay = lead.a * mid.ty + lead.v * lead.v * dTy;
+    gf = Math.hypot(ax, ay - GRAV) / GRAV;
+  }
   gSmooth = lerp(gSmooth, gf, 0.15);
+  const spd = lead && lead.active ? Math.round(kmh(Math.abs(lead.v))) : 0;
+  let tallest = 0;
+  for (const el of els) if (el.kind !== 'station' && el.top) tallest = Math.max(tallest, (trackY - el.top.y) / ppm);
+  const onTrack = trains.filter(t => t.active).length;
 
   noStroke(); fill(sc.hud); textAlign(LEFT, TOP);
   textStyle(BOLD); textSize(11); text('L O O P   L O G I C', 20, 18);
-  textSize(38); text(Math.round(kmh(Math.abs(v))), 20, 34);
-  const sw = textWidth(String(Math.round(kmh(Math.abs(v)))));
+  textSize(38); text(spd, 20, 34);
+  const sw = textWidth(String(spd));
   textStyle(NORMAL); textSize(13); text('km/h', 26 + sw, 56);
-  text(`${gSmooth.toFixed(1)} G   ·   lap ${laps}   ·   ${invCount} inversions`, 20, 82);
-  if (wasInv) { textStyle(BOLD); text('UPSIDE DOWN!', 20, 100); textStyle(NORMAL); }
+  text(`${gSmooth.toFixed(1)} G   ·   ${laps} laps   ·   ${invCount} inversions`, 20, 82);
+  text(`${onTrack}/${trains.length} trains   ·   tallest ${Math.round(tallest)} m   ·   track ${P.evolve ? 'evolving' : 'frozen'}`, 20, 100);
+  if (lead && lead.wasInv) { textStyle(BOLD); text('UPSIDE DOWN!', 20, 118); textStyle(NORMAL); }
 
   if (statusT > 0 && status) {
     const a = Math.min(1, statusT / 0.4);
-    const c = color(sc.hud); c.setAlpha(255 * a); fill(c);
+    fill(hudCol(255 * a));
     textAlign(CENTER, TOP); textStyle(BOLD); textSize(Math.max(15, Math.min(22, W / 45)));
     text(status, W / 2, 22);
     textStyle(NORMAL);
@@ -485,7 +642,10 @@ function drawHUD() {
 
 // ---------- interaction ----------
 function loopAt(x, y) {
-  for (let i = 0; i < loopXs.length; i++) { const [cx, cy] = handleCenter(i); if (dist(x, y, cx, cy) < Math.max(R * 1.3, 22)) return i; }
+  for (let i = 0; i < loopXs.length; i++) {
+    const b = handleBox(i);
+    if (Math.abs(x - b.cx) < Math.max(R * 1.2, 22) && y > b.top - 20 && y < trackY + 20) return i;
+  }
   return -1;
 }
 
@@ -518,8 +678,8 @@ function mouseReleased() { if (dragging >= 0) { dragging = -1; cursor('grab'); }
 function handleResize() {
   layout();
   const fr = loopXs.slice();
-  setLoopCount(Math.min(P.loops, fr.length));
-  if (fr.length === loopXs.length) loopXs = fr;
+  setLoopCount(P.wantLoops);
+  if (fr.length === loopXs.length) loopXs = fr; else resetEvolution();
   buildBg();
   rebuild(true);
 }
@@ -530,13 +690,22 @@ function windowResized() {
   handleResize();
 }
 
+function newTrack() {
+  layout();
+  setLoopCount(P.wantLoops);
+  resetEvolution();
+  rebuild(false);
+  resetTrains();
+}
+
 function bindUI() {
   $('launch').oninput = e => { P.launch = +e.target.value; $('vLaunch').textContent = P.launch + ' km/h'; };
-  $('loops').oninput = e => { P.loops = +e.target.value; layout(); setLoopCount(P.loops); rebuild(false); resetTrain(); };
-  $('style').onchange = e => { P.style = e.target.value; rebuild(false); resetTrain(); };
-  $('hills').oninput = e => { P.hills = e.target.value / 100; $('vHills').textContent = e.target.value + '%'; rebuild(true); };
-  $('scene').onchange = e => { P.scene = e.target.value; buildBg(); buildTrackLayer(); };
-  $('restart').onclick = resetTrain;
+  $('trains').oninput = e => { P.trains = +e.target.value; $('vTrains').textContent = P.trains; setTrainCount(P.trains); };
+  $('loops').oninput = e => { P.wantLoops = +e.target.value; newTrack(); };
+  $('style').onchange = e => { P.style = e.target.value; newTrack(); };
+  $('evolve').onchange = e => { P.evolve = e.target.checked; };
+  $('scene').onchange = e => { P.scene = e.target.value; buildBg(); drawTrackLayer(); };
+  $('restart').onclick = () => { newTrack(); setStatus('Fresh track. Watch it sculpt itself…', 2.5); };
   $('rec').onclick = record;
   $('toggle').onclick = () => {
     const p = $('panel'); p.classList.toggle('min');
@@ -554,11 +723,10 @@ async function record() {
     resizeCanvas(800, 450);
     handleResize();
     FIXDT = 1 / 30; frameRate(30);
-    resetTrain();
     await saveGif('my-rollercoaster', 10, { units: 'seconds', delay: 0 });
   } catch (err) {
     console.error(err);
-    alert('GIF recording failed: ' + err.message);
+    setStatus('GIF recording failed: ' + err.message, 4);
   }
   FIXDT = 1 / 60; frameRate(60);
   pixelDensity(baseDensity);
